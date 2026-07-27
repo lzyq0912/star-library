@@ -1473,16 +1473,27 @@ function renderTitle(e) {
 
 function updateFetchOriginalButton(entry = state.activeEntry) {
   const btn = $('#reader-fetch-original');
-  if (!btn) return;
+  const status = $('#reader-original-status');
   const offline = Boolean(entry && isLocalOfflineSourceId(entry.sourceId));
   const canFetch = Boolean(entry && /^https?:\/\//i.test(entry.link || '')) && !offline;
   const hasFull = Boolean(entry && (entry.originalFetchedAt || hasUsableOriginalContent(entry) || offline));
+  const failed = Boolean(entry && entry.originalFetchError && !hasFull);
+  if (status) {
+    status.textContent = state.fetchingOriginal
+      ? (failed ? '正在重新获取原文…' : '正在获取原文…')
+      : failed ? `原文获取失败：${entry.originalFetchError}` : '';
+    status.classList.toggle('hidden', !state.fetchingOriginal && !failed);
+    status.classList.toggle('error', failed && !state.fetchingOriginal);
+  }
+  if (!btn) return;
   // 失败后仍显示按钮，方便重试（尤其是 DNS/内网误杀）；本地离线源始终隐藏
   btn.classList.toggle('hidden', !canFetch || hasFull);
   btn.disabled = !canFetch || hasFull || state.fetchingOriginal;
-  setButtonIconLabel(btn, state.fetchingOriginal ? 'loader-circle' : 'book-open-text', state.fetchingOriginal ? '获取中…' : '获取原文', {
+  const label = state.fetchingOriginal ? '获取中…' : failed ? '重试原文' : '获取原文';
+  setButtonIconLabel(btn, state.fetchingOriginal ? 'loader-circle' : failed ? 'refresh-cw' : 'book-open-text', label, {
     className: state.fetchingOriginal ? 'app-icon app-icon-spin' : 'app-icon',
   });
+  btn.setAttribute('aria-label', label);
   btn.title = offline
     ? '本地导入源，无需抓取网页'
     : (entry && entry.originalFetchError ? `上次获取失败：${entry.originalFetchError}` : '从原始网页提取正文');

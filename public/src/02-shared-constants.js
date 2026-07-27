@@ -5,7 +5,7 @@ const READER_NAV_TABS = ['original'];
 const DEFAULT_READER_OPEN_TAB = 'original';
 const READER_OPEN_TABS = ['original'];
 
-/** 个人唯一模式，无登录 */
+/** 固定单 owner 模式；登录由服务端页面和 Session 处理。 */
 function isZenPersonalMode() {
   return true;
 }

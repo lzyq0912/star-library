@@ -6,6 +6,7 @@ const {
   triggerSourceInteractionRefresh,
 } = require('../jobs/orchestrator');
 const { entryByIdOrPrefix } = require('../seo/register');
+const { originalFetchPublicError } = require('../../lib/original-fetch-error');
 
 function registerCatalogRoutes(app, { submitLinkRateLimit, submitLinkDailyRateLimit, originalFetchRateLimit }) {
 
@@ -37,6 +38,7 @@ function registerCatalogRoutes(app, { submitLinkRateLimit, submitLinkDailyRateLi
       category: category || undefined,
       q: q || undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
+      viewer: req.user,
     }).map((entry) => {
       if (!entry) return entry;
       if (entry.content == null
@@ -64,7 +66,7 @@ function registerCatalogRoutes(app, { submitLinkRateLimit, submitLinkDailyRateLi
   });
 
   app.get('/api/entry/:id', (req, res) => {
-    const entry = entryByIdOrPrefix(req.params.id);
+    const entry = entryByIdOrPrefix(req.params.id, req.user);
     if (!entry) return res.status(404).json({ error: 'entry not found' });
     res.json({ entry });
   });
@@ -126,11 +128,12 @@ function registerCatalogRoutes(app, { submitLinkRateLimit, submitLinkDailyRateLi
   });
 
   app.post('/api/entry/:id/view', (req, res) => {
-    const entry = fetcher.getEntryById(req.params.id);
+    const entry = fetcher.getEntryById(req.params.id, req.user);
     if (!entry) return res.status(404).json({ error: 'entry not found' });
     try {
       store.recordEntryView(entry.id);
-      res.json({ stats: store.getEntryStats([entry.id])[entry.id] });
+      const state = store.setUserEntryState(req.user.id, entry.id, { viewed: true });
+      res.json({ stats: store.getEntryStats([entry.id], req.user)[entry.id], state });
     } catch (e) {
       sendError(res, e, 'record entry view failed');
     }
@@ -164,7 +167,7 @@ function registerCatalogRoutes(app, { submitLinkRateLimit, submitLinkDailyRateLi
     const note = String((req.body && req.body.note) || '').trim();
     if (!url) return res.status(400).json({ error: '请填写要提交的链接' });
     try {
-      const submitter = { displayName: '我' };
+      const submitter = req.user;
       const entry = await fetcher.submitLink(url, submitter, { note });
       res.json({ pending: false, entry, sourceId: 'user-submitted' });
     } catch (e) {
@@ -178,7 +181,7 @@ function registerCatalogRoutes(app, { submitLinkRateLimit, submitLinkDailyRateLi
     const note = String((req.body && req.body.note) || '').trim();
     if (!url) return res.status(400).json({ error: '请填写 GitHub 仓库链接' });
     try {
-      const submitter = { displayName: '我' };
+      const submitter = req.user;
       const entry = await fetcher.submitGitHubRepo(url, submitter, { note });
       res.json({ pending: false, entry, sourceId: 'github-projects' });
     } catch (e) {
@@ -193,9 +196,9 @@ function registerCatalogRoutes(app, { submitLinkRateLimit, submitLinkDailyRateLi
       const updated = await fetcher.fetchEntryOriginal(entry);
       res.json({ entry: updated });
     } catch (e) {
-      sendError(res, e, 'fetch original content failed');
+      sendError(res, originalFetchPublicError(e), 'fetch original content failed');
     }
   });
 }
 
-module.exports = { registerCatalogRoutes };
+module.exports = { originalFetchPublicError, registerCatalogRoutes };

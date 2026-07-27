@@ -146,6 +146,7 @@ const state = {
   me: null,
   authMode: 'login',
   aiProfiles: [],
+  aiSecretStorageReady: true,
   activeAiProfileId: '',
   rewriteAiProfileId: '',
   agentAiProfileId: '',

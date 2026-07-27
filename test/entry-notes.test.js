@@ -9,7 +9,10 @@ process.env.QMREADER_DATA_DIR = testDataDir;
 
 const store = require('../lib/store');
 
-after(() => fs.rmSync(testDataDir, { recursive: true, force: true }));
+after(() => {
+  store.closeDatabase();
+  fs.rmSync(testDataDir, { recursive: true, force: true });
+});
 
 test('entry thinking note save / read / update / clear roundtrip', () => {
   const id = store.hashText('thinking-note-entry').slice(0, 32);

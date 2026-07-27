@@ -1415,10 +1415,11 @@ function showEntryContextMenu(event, entry) {
 }
 
 function renderAuthState() {
-  // 个人模式：无登录 UI，只保留侧栏 footer / AI 设置 / 删文控件
+  // 单用户模式：仅展示退出，不提供注册或账号切换。
   $('#auth-open')?.classList.add('hidden');
   $('#account-info')?.classList.add('hidden');
   $('#account-settings-open')?.classList.add('hidden');
+  $('#logout-btn')?.classList.toggle('hidden', !state.me);
   const footer = $('.sidebar-footer');
   if (footer) footer.classList.remove('hidden');
   renderAdminEntryControls();
@@ -1426,7 +1427,7 @@ function renderAuthState() {
   updateAgentControls();
 }
 
-function setAccountMenuOpen() { /* no-op：无账号菜单 */ }
+function setAccountMenuOpen() { /* no-op：固定 owner 不提供账号菜单 */ }
 
 function toggleAccountMenu() { /* no-op */ }
 
@@ -1445,7 +1446,7 @@ function renderSidebarAiSettings() {
   }
 }
 
-function setAuthMode() { /* no-op：无登录 */ }
+function setAuthMode() { /* no-op：登录使用独立服务端页面 */ }
 function setAuthFormEnabled() { /* no-op */ }
 function setChangePasswordFormEnabled() { /* no-op */ }
 function openAuth() { /* no-op：个人模式永不登录 */ }
@@ -1577,9 +1578,16 @@ async function submitReaderLink() {
   }
 }
 
-async function submitAuth() { /* no-op：无登录 API */ }
+async function submitAuth() { /* no-op：主应用内不承载登录表单 */ }
 async function submitChangePassword() { /* no-op */ }
-async function logout() { /* no-op */ }
+async function logout() {
+  try {
+    await api('/api/auth/logout', { method: 'POST' });
+  } finally {
+    setCurrentUser(null);
+    window.location.assign('/login');
+  }
+}
 
 function renderContributorDirectory() {
   const list = visibleContributors();

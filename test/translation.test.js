@@ -10,7 +10,10 @@ process.env.QMREADER_DATA_DIR = testDataDir;
 const deepseek = require('../lib/deepseek');
 const store = require('../lib/store');
 
-after(() => fs.rmSync(testDataDir, { recursive: true, force: true }));
+after(() => {
+  store.closeDatabase();
+  fs.rmSync(testDataDir, { recursive: true, force: true });
+});
 
 function providerConfig(overrides = {}) {
   return {

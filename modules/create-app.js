@@ -6,6 +6,7 @@ const express = require('express');
 const { createAppRateLimiters } = require('./shared/rate-limit');
 const { applyCoreMiddleware } = require('./platform/middleware');
 const { mountPreSessionStatic, mountPublicStatic } = require('./platform/static');
+const { attachAuth, registerAuthRoutes, requireLogin } = require('./platform/auth');
 const { registerSeoRoutes } = require('./seo/register');
 const { registerCatalogRoutes } = require('./slices/catalog');
 const { registerAiAssetRoutes } = require('./slices/ai-assets');
@@ -17,6 +18,10 @@ function createApp() {
   const rateLimiters = createAppRateLimiters();
 
   applyCoreMiddleware(app);
+  app.use(attachAuth);
+  registerAuthRoutes(app, { loginRateLimit: rateLimiters.loginRateLimit });
+  app.use(requireLogin);
+
   mountPreSessionStatic(app);
 
   registerSeoRoutes(app, { faviconRateLimit: rateLimiters.faviconRateLimit });

@@ -2,9 +2,9 @@
 
 **中文** | [English](#english)
 
-把 RSS 阅读、双语翻译、乔木风格改写、人工点评和文章上下文 AI 对话放在一个自托管阅读工作台里。
+把 RSS 阅读、双语翻译、乔木风格改写和文章上下文 AI 对话放在一个自托管、固定单用户的阅读工作台里。
 
-QMReader is a self-hosted RSS reading workbench that turns feeds into bilingual titles, rewrites, comments, and reusable public reading assets.
+QMReader is a self-hosted, fixed-owner RSS reading workbench with bilingual titles, rewrites, and persistent reading state.
 
 [在线体验](https://rss.qiaomu.ai) · [产品巡游](#产品巡游) · [快速开始](#快速开始) · [部署](#部署) · [API](#api) · [License](#license)
 
@@ -18,8 +18,8 @@ QMReader 是向阳乔木自用的 RSS 阅读器。它不是一个通用新闻门
 
 - 订阅 RSSHub、直接 RSS、sitemap 和少量定制抓取源。
 - 抓取后自动补英文标题中文翻译。
-- 支持把文章翻译、改写成乔木风格中文稿，并保存为可分享的公开资产。
-- 支持人工点评、文章上下文 AI 对话、贡献者页、公开资产目录和 RSS。
+- 支持把文章翻译、改写成乔木风格中文稿，并长期保存在自己的阅读库中。
+- 支持文章上下文 AI 对话和跨设备同步的阅读状态。
 - 刷新机制把“快速 RSS 抓取”和“慢速 AI 改写”拆开，让新条目先出现，AI 后台补齐。
 
 生产站点运行在 [rss.qiaomu.ai](https://rss.qiaomu.ai)，代码可以自托管。站点服务端需要自己的 DeepSeek 或 OpenAI-compatible API key；示例配置只包含空值，不包含任何真实密钥。
@@ -32,8 +32,8 @@ QMReader 是向阳乔木自用的 RSS 阅读器。它不是一个通用新闻门
 
 - **先快后慢:** 新 RSS 条目先进入列表，AI 翻译和改写慢慢补齐。
 - **先读后加工:** 原文、中文翻译、乔木风格改写并排存在同一篇文章下。
-- **本机个人阅读器:** 无账号系统；翻译、改写、点评、对话在本机直接可用，也可沉淀为可分享资产。
-- **可自托管:** 你可以直接看正式站，也可以拿代码在本机或服务器部署。
+- **固定单用户:** 一个 owner 账号控制全部内容；收藏、已读和历史状态存入 SQLite，跨设备同步。
+- **可安全自托管:** 用 HTTPS 反向代理部署到服务器，阅读内容、图片和 API 均需要登录。
 
 ## 产品巡游
 
@@ -49,14 +49,14 @@ QMReader 是向阳乔木自用的 RSS 阅读器。它不是一个通用新闻门
 
 ![QMReader 文章详情、中文改写和 AI 伴读](docs/assets/qmreader-reader-rewrite.png)
 
-### 公开资产
+### 私人资产
 
-QMReader 会把可复用内容做成公开资产，而不是只留在个人会话里：
+QMReader 会把可复用内容沉淀为私人资产，而不是只留在浏览器会话里：
 
 - 翻译和改写有稳定深链。
 - 人工点评、划线点评、文章对话可被单条引用。
-- `/assets`、`/assets.xml`、`/assets/rewrite.xml` 等目录和 RSS 让后续读者订阅资产流。
-- `/contributors/:id` 和 `/contributors/:id.xml` 展示某个贡献者沉淀过的公开内容，不暴露邮箱。
+- 收藏、已读和历史由服务端 SQLite 保存，换设备后继续阅读。
+- 所有资产页面、RSS 与媒体文件均在登录保护之后，不会被公网匿名访问。
 
 ### 管理和刷新
 
@@ -72,18 +72,20 @@ QMReader 会把可复用内容做成公开资产，而不是只留在个人会�
 | 双语阅读 | 英文标题自动补中文，正文可生成中文译文，并保留原文上下文 |
 | 乔木风格改写 | 对文章、论文、Hacker News 讨论、Product Hunt 官网材料做中文改写 |
 | Hacker News 增强 | 使用 HNRSS 组合高价值 HN feed，并把讨论摘录和作者回复纳入阅读材料 |
-| 公开阅读资产 | 翻译、改写、点评、划线、对话都有稳定深链、贡献者页和 RSS |
-| 贡献者体系 | 公开贡献者页按资产、改写、点评、对话和有用反馈聚合，不暴露邮箱 |
+| 持久阅读状态 | 收藏、已读和阅读历史写入 SQLite，同一 owner 的所有设备保持一致 |
+| 固定单用户鉴权 | 无注册、无访客；密码 scrypt 哈希，HttpOnly Session Cookie 保护所有内容与 API |
 | AI 伴读 | 当前文章右侧可做总结要点、结构拆解、事实清单、待验证点等上下文对话 |
 | 快速刷新 | RSS fetch 先落盘并通知 Web 进程，标题翻译和自动改写后置到 AI worker |
-| 安全的用户 AI 配置 | 用户 API key 存在浏览器 localStorage，不写入服务器数据库 |
+| 安全的用户 AI 配置 | API key 由服务器加密写入 SQLite，浏览器只使用配置 ID，多设备共享 |
 | 自托管部署 | 支持 Node + systemd，也支持 Docker Compose；SQLite 存储运行数据 |
 
 ## 快速开始
 
 ```bash
+# Node 24 LTS recommended (minimum Node 22.13.0)
 npm install
 cp .env.example .env
+# Set OWNER_USERNAME, a 12+ character OWNER_PASSWORD, and APP_ENCRYPTION_KEY in .env
 npm start
 ```
 
@@ -101,6 +103,7 @@ HOST=127.0.0.1 PORT=3000 npm start
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
+| `APP_ENCRYPTION_KEY` | 无 | 界面 AI 配置的 32 字节加密主密钥；可用 `openssl rand -base64 32` 生成 |
 | `DEEPSEEK_API_KEY` | 空 | 服务端 DeepSeek API key，用于标题翻译和默认改写 |
 | `DEEPSEEK_MODEL` | `deepseek-v4-flash` | 服务端默认标题翻译和中文改写模型 |
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | DeepSeek OpenAI-compatible API 地址 |
@@ -111,7 +114,11 @@ HOST=127.0.0.1 PORT=3000 npm start
 | `GEMINI_API_KEY` | 空 | Google AI Studio Gemini key（英文正文一键译简中等） |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini 默认模型 |
 | `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta/openai` | Gemini OpenAI-compatible API 地址 |
-| `HOST` | `127.0.0.1` | Node 监听地址（默认环回；本仓库仅个人模式、无登录，勿无脑绑 `0.0.0.0`） |
+| `OWNER_USERNAME` | 无 | 固定 owner 用户名，3–64 位小写字母、数字、点、下划线或连字符 |
+| `OWNER_PASSWORD` | 无 | 固定 owner 密码，至少 12 位；首次启动写入 scrypt 哈希，改动后吊销旧 Session |
+| `OWNER_DISPLAY_NAME` | `Owner` | owner 的显示名 |
+| `AUTH_COOKIE_SECURE` | 自动 | HTTPS 生产环境设为 `1`；仅本机 HTTP 调试时设为 `0` |
+| `HOST` | `127.0.0.1` | 裸 Node 默认监听环回；Docker Compose 在容器内覆盖为 `0.0.0.0`，宿主机仍只暴露回环端口 |
 | `PORT` | `8080` | Node 监听端口 |
 | `STARTUP_REFRESH_DELAY_MS` | `30000` | 启动后延迟多少毫秒触发首次全量刷新；`-1` 表示禁用 |
 | `FRESHNESS_SWEEP_INTERVAL_MS` | `300000` | 轻量增量检查轮询间隔 |
@@ -142,13 +149,14 @@ HOST=127.0.0.1 PORT=3000 npm start
 
 ## 运行形态
 
-本仓库**仅个人本机阅读器**：无注册 / 登录 / 改密 / 多用户 / admin 账号。本机打开即可软删、投稿到个人精选、调用 AI；默认 `HOST=127.0.0.1`，勿将无鉴权服务直接暴露到公网。
+本仓库是**固定单用户阅读器**：无注册、无多用户、无匿名访问。首次启动必须配置 `OWNER_USERNAME` 和 `OWNER_PASSWORD`；所有页面、API、RSS 和本地媒体都需要 owner Session。公网部署应使用 HTTPS 反向代理，并让 Node/Docker 端口只在服务器本机可达。
 
 ## AI 与隐私边界
 
-- 服务端 key 只从 `.env` / `.env.local` / 环境变量读取，不会下发到浏览器。
-- 页面里配置的 AI provider/API key 保存在浏览器 localStorage，不写入 SQLite。
-- 文章对话、模型列表和连接测试会把 key 随请求发送到本站后端代理调用。
+- 页面中保存的 AI provider/API key 使用 `APP_ENCRYPTION_KEY` 进行 AES-256-GCM 加密后写入 SQLite，不会把明文下发到浏览器。
+- 浏览器只向本站后端发送 AI 配置 ID；文章对话、模型列表、连接测试、翻译和改写都由后端解密并调用 provider。
+- `.env` 中的 `DEEPSEEK_API_KEY` / `GEMINI_API_KEY` 仅作为后台任务兼容回退，也不会下发到浏览器。
+- 请分开备份 SQLite 与 `APP_ENCRYPTION_KEY`；主密钥丢失或更换后，已保存的 API key 无法解密。
 - Base URL 必须是公开 `https://` 地址，服务端会拒绝本机和内网地址，降低 SSRF 风险。
 - 个人精选链接在本机直接抓取入库；服务端仍拒绝内网、IP 字面量与探针路径等 SSRF 面。
 - 运行数据在 `data/qmreader.sqlite` 和 `data/cache.json`，默认不提交到 Git。
@@ -199,7 +207,7 @@ node scripts/refresh-worker.js --kind=auto-rewrite --sources=hackernews
 
 ## API
 
-常用公开接口：
+所有接口均需 owner 登录：
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -210,8 +218,13 @@ node scripts/refresh-worker.js --kind=auto-rewrite --sources=hackernews
 | GET | `/api/entry/:id/rewrite` | 读取乔木风格改写 |
 | GET | `/api/entry/:id/comments` | 读取公开人工点评 |
 | GET | `/api/entry/:id/chat` | 读取公开文章对话 |
-| GET | `/assets` | 公开资产网页目录 |
-| GET | `/assets.xml` | 公开资产 RSS |
+| POST | `/api/auth/login` | 创建 owner Session（浏览器通常使用 `/login` 页面） |
+| POST | `/api/auth/logout` | 注销当前设备 Session |
+| GET | `/api/me` | 当前 owner 资料 |
+| GET | `/api/me/entry-states` | 读取收藏、已读和历史状态 |
+| PATCH | `/api/me/entry-states/:id` | 更新单篇收藏或已读状态 |
+| GET | `/assets` | 私人资产网页目录 |
+| GET | `/assets.xml` | 登录保护的资产 RSS |
 | GET | `/contributors` | 公开贡献者目录 |
 | GET | `/contributors/:id.xml` | 贡献者公开资产 RSS |
 | GET | `/llms.txt` | 站点定位、公开目录、RSS 和 sitemap 汇总 |
@@ -219,7 +232,7 @@ node scripts/refresh-worker.js --kind=auto-rewrite --sources=hackernews
 | DELETE | `/api/entry/:id` | 本机软删条目 |
 | POST | `/api/refresh` | 手动刷新源 |
 
-本机个人模式无 `/api/auth/*`、`/api/me` 登录路由；写操作视为本机所有者操作。切片挂载见 `modules/create-app.js`。
+没有注册、找回密码或账号切换接口。修改密码请更新服务器 `.env` 中的 `OWNER_PASSWORD` 后重启服务；所有旧 Session 会被吊销。切片挂载见 `modules/create-app.js`。
 
 ## 部署
 
@@ -236,7 +249,7 @@ rsync -az --delete \
 ssh user@server 'cd /opt/qmreader && bash scripts/install-systemd-service.sh'
 ```
 
-安装脚本会执行 `npm ci --omit=dev`，写入 systemd unit，并默认监听 `HOST=127.0.0.1`、`PORT=3088`。公开访问建议由 Nginx/Caddy 反代 HTTPS。
+安装脚本会执行 `npm ci --omit=dev`，写入 systemd unit，并默认监听 `HOST=127.0.0.1`、`PORT=3088`。请先在 `/opt/qmreader/.env` 配置 owner 凭据，再由 Nginx/Caddy 反代 HTTPS。
 
 常用命令：
 
@@ -254,6 +267,18 @@ docker compose up -d --build
 ```
 
 默认容器内端口 `8080`，宿主机私有端口 `127.0.0.1:3088`。
+`./data` 保存 SQLite 与缓存，`./public/article-images` 保存下载的正文图片；两者都必须纳入服务器备份。
+
+Caddy 示例（把域名替换为自己的解析记录）：
+
+```caddyfile
+reader.example.com {
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:3088
+}
+```
+
+反向代理必须传递原始 `Host` 和 `X-Forwarded-Proto`；Caddy 默认会正确处理。不要把容器的 `8080` 或宿主机 `3088` 直接开放到公网。
 
 ## 项目结构
 
@@ -296,7 +321,7 @@ npm run refresh:worker
 
 - 某些站点会被 Cloudflare 或反爬策略拦截，无法稳定抓取。
 - AI 生成质量依赖外部 provider，可能遇到限流、模型变更或费用问题。
-- 默认 SQLite 适合个人自托管；本仓库无多用户账号系统。
+- 默认 SQLite 适合一个 owner 的自托管阅读库，不适合多租户或高并发写入。
 - Google S2 favicon 在部分网络环境不可用，会回退到内置安全占位图标。
 - GitHub social preview 暂未自动配置，需要仓库发布后在 GitHub Settings 手动上传。
 
@@ -323,7 +348,7 @@ MIT License. See [LICENSE](LICENSE).
 
 # English
 
-QMReader is a self-hosted RSS reading workbench by Qiaomu. It combines feed aggregation, bilingual title translation, Chinese article rewriting, public comments, and article-context AI conversations into one quiet reader interface.
+QMReader is a self-hosted, fixed-owner RSS reading workbench. It combines feed aggregation, bilingual title translation, Chinese article rewriting, persistent reading state, and article-context AI conversations in one quiet reader interface.
 
 ![QMReader live homepage: sources, article list, reader, and article agent](docs/assets/qmreader-home.png)
 
@@ -331,9 +356,9 @@ QMReader is a self-hosted RSS reading workbench by Qiaomu. It combines feed aggr
 
 - RSSHub, direct RSS, sitemap, Hacker News, Product Hunt, GitHub Trending, Hugging Face Papers, and other technical sources.
 - A fast refresh pipeline: RSS fetches land first; AI translation/rewrite work runs separately in the background.
-- Public reading assets: translations, rewrites, comments, chats, contributor pages, RSS feeds, and stable deep links.
+- Private reading assets and server-persisted favorites, read state, and history shared by the owner's devices.
 - A static frontend served by Express, with SQLite for runtime data.
-- Server-side DeepSeek/OpenAI-compatible support, plus user-provided browser-side AI profiles.
+- Server-side DeepSeek/OpenAI-compatible support, plus encrypted cross-device AI profiles.
 
 ## Product Tour
 
@@ -349,9 +374,9 @@ The reader keeps the original article, Chinese rewrite, translation, annotations
 
 ![QMReader reader with Chinese rewrite and article agent](docs/assets/qmreader-reader-rewrite.png)
 
-### Public Assets
+### Private Assets
 
-Translations, rewrites, comments, annotations, and article chats can become public reading assets with stable links, contributor pages, sitemap entries, and RSS feeds.
+Translations, rewrites, comments, annotations, and article chats keep stable links and RSS feeds, but every route remains behind the fixed-owner session.
 
 ## Feature Map
 
@@ -361,9 +386,10 @@ Translations, rewrites, comments, annotations, and article chats can become publ
 | Reader workbench | Keep source list, article list, reader, and Article Agent in one screen |
 | Bilingual reading | Translate English titles and generate Chinese article translations |
 | Qiaomu-style rewrites | Rewrite articles, papers, HN discussion material, and Product Hunt product context into readable Chinese |
-| Public reading assets | Turn translations, rewrites, comments, annotations, and chats into stable public links and RSS |
+| Persistent reading state | Keep favorites, read state, and history in SQLite across owner devices |
+| Fixed-owner authentication | Protect every page, API, RSS feed, and media file with an HttpOnly server session |
 | Split refresh pipeline | Show new RSS entries first, then run AI title translation/rewrite in a separate worker |
-| User AI profiles | Store user-provided API keys in browser localStorage instead of the server database |
+| User AI profiles | Encrypt API keys in server-side SQLite and share profiles across owner devices |
 | Self-hosting | Run with Node/systemd or Docker Compose; store runtime data in SQLite |
 
 ## Try It
@@ -371,8 +397,10 @@ Translations, rewrites, comments, annotations, and article chats can become publ
 Live demo: [rss.qiaomu.ai](https://rss.qiaomu.ai)
 
 ```bash
+# Node 24 LTS recommended (minimum Node 22.13.0)
 npm install
 cp .env.example .env
+# Set OWNER_USERNAME, a 12+ character OWNER_PASSWORD, and APP_ENCRYPTION_KEY in .env
 npm start
 ```
 
@@ -392,7 +420,9 @@ Important variables (full Chinese table above):
 
 - `DEEPSEEK_API_KEY` / `GEMINI_API_KEY`: server-side keys for translation and rewriting.
 - `DEEPSEEK_MODEL` / `GEMINI_MODEL`: default models.
-- `HOST` / `PORT`: HTTP bind address and port (default host `127.0.0.1`; personal-only, no login).
+- `OWNER_USERNAME` / `OWNER_PASSWORD`: the fixed owner credentials; the password must be at least 12 characters.
+- `APP_ENCRYPTION_KEY`: 32-byte key used to encrypt UI-managed AI credentials in SQLite.
+- `HOST` / `PORT`: HTTP bind address and port. Keep the host port private behind the HTTPS reverse proxy.
 - `STARTUP_REFRESH_DELAY_MS`: startup refresh delay, or `-1` to disable.
 - `FRESHNESS_SWEEP_INTERVAL_MS`: stale-source sweep interval.
 - `AUTO_REWRITE_SOURCE_IDS`: optional source allowlist for auto rewriting.
@@ -402,9 +432,9 @@ Runtime DB defaults to `data/qmreader.sqlite` under `data/` (Git-ignored).
 
 ## Privacy And Security
 
-- Server API keys are read from env files or environment variables only.
-- User-configured AI keys are kept in browser localStorage and are not stored in SQLite.
-- Public contributions are intentionally public through asset pages, contributor pages, sitemap, and RSS.
+- UI-managed AI keys are encrypted with `APP_ENCRYPTION_KEY` and stored in SQLite; plaintext keys are never returned to browsers.
+- Environment provider keys remain available as optional background-job fallbacks.
+- All reader pages, APIs, RSS feeds, and local media require the fixed owner session.
 - AI base URLs must be public HTTPS URLs; localhost and private network addresses are rejected.
 - Report vulnerabilities through the process in [SECURITY.md](SECURITY.md).
 
@@ -412,9 +442,10 @@ Runtime DB defaults to `data/qmreader.sqlite` under `data/` (Git-ignored).
 
 Recommended production shape:
 
-1. Run Node on a private host/port, for example `127.0.0.1:3088`.
-2. Put Nginx or Caddy in front for HTTPS.
-3. Keep `.env` and `data/` on the server only.
+1. Configure `OWNER_USERNAME` and `OWNER_PASSWORD` in the server-only `.env` file.
+2. Run Node on a private host/port, for example `127.0.0.1:3088`.
+3. Put Nginx or Caddy in front for HTTPS.
+4. Back up `data/`, `public/article-images/`, and `APP_ENCRYPTION_KEY` separately.
 
 ```bash
 rsync -az --delete \
@@ -451,7 +482,7 @@ Before public release, tracked files and Git history were scanned for common API
 - External websites may block scraping.
 - AI output depends on your provider, quota, and model behavior.
 - SQLite is intended for small self-hosted use, not a large multi-tenant SaaS.
-- Account registration has no email verification.
+- There is no registration, password recovery, or multi-user mode; change the owner password through the server environment and restart.
 - The GitHub social preview image is a manual follow-up after publication.
 
 ## Maintainer

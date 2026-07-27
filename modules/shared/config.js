@@ -4,6 +4,9 @@
  */
 const path = require('path');
 const fs = require('fs');
+const { loadEnv } = require('../../lib/env');
+
+loadEnv();
 
 const ROOT = path.join(__dirname, '..', '..');
 const MINUTE_MS = 60 * 1000;
@@ -36,7 +39,7 @@ const DOMPURIFY_VERSION = JSON.parse(fs.readFileSync(
 const KATEX_DIST_PATH = path.join(path.dirname(require.resolve('katex/package.json')), 'dist');
 const REFRESH_WORKER_PATH = path.join(ROOT, 'scripts', 'refresh-worker.js');
 const DEFAULT_TITLE = 'QMReader · RSS 阅读器';
-const DEFAULT_DESCRIPTION = '围绕 RSS 文章沉淀中文翻译、乔木风格重写、人工点评和文章对话的公开阅读站。';
+const DEFAULT_DESCRIPTION = '围绕 RSS 文章沉淀中文翻译、乔木风格重写和阅读状态的私人阅读工作台。';
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const UMAMI_WEBSITE_ID = String(process.env.UMAMI_WEBSITE_ID || '').trim();
 const UMAMI_SRC = String(process.env.UMAMI_SRC || 'https://umami.qiaomu.ai/script.js').trim();

@@ -12,7 +12,10 @@ delete process.env.ADMIN_NAME;
 
 const store = require('../lib/store');
 
-after(() => fs.rmSync(testDataDir, { recursive: true, force: true }));
+after(() => {
+  store.closeDatabase();
+  fs.rmSync(testDataDir, { recursive: true, force: true });
+});
 
 function entry(id, title) {
   return {

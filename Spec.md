@@ -4,22 +4,22 @@
 > 状态：**完整落地**  
 > 目标：后端 + 前端源码均按垂直切片组织；**运行时 UX / HTTP 契约 / 数据路径 100% 不变**；性能路径不回退并补齐投稿目录读路径。
 
-## 鉴权（个人模式 · 无登录）
+## 鉴权（固定单用户）
 
 | 项 | 约定 |
 |----|------|
-| 形态 | **本仓库唯一形态 = 个人本机阅读器**；无注册 / 登录 / 改密 / 多用户 |
-| 中间件 | `modules/platform/auth.js` 为 noop 兼容导出（`PERSONAL_NO_AUTH`）；**不**挂 session |
-| 路由 | `create-app` **不**挂载 `/api/auth/*`、`/api/me`；写操作（软删 / AI / 刷新 / 个人精选）始终允许 |
-| 绑定 | 默认 `HOST=127.0.0.1`；勿将无鉴权服务直接暴露局域网/公网 |
-| DB | 保留 `users` / `sessions` 表结构（兼容旧库）；**不**再文档化注册登录 API |
-| 历史 | 原 S1/S2 `allowEntrySoftDelete` / `allowLocalAi`、S3 改密吊销、S6 refresh-hint 登录门禁等 **登录意图已废弃** |
+| 形态 | **固定单 owner**；无注册 / 找回密码 / 多用户 |
+| 中间件 | `modules/platform/auth.js` 初始化 owner、解析 HttpOnly Session Cookie，并默认保护所有内容路由 |
+| 路由 | 仅公开 `/login`、登录提交、隐私版 `robots.txt` 和 favicon；主应用、API、RSS、SEO 深链及媒体均需登录 |
+| 绑定 | 裸 Node 默认 `HOST=127.0.0.1`；Docker 容器内监听 `0.0.0.0`，宿主机只映射 `127.0.0.1:3088` 给 HTTPS 反代 |
+| DB | `users` / `sessions` 保存 owner 与会话；`user_entry_states` 保存收藏、已读和历史 |
+| 密码 | `OWNER_PASSWORD` 至少 12 位，仅以 scrypt 哈希入库；环境变量变化时吊销旧 Session |
 
 ## 约束（硬性）
 
 | 项 | 要求 |
 |----|------|
-| UX / 功能 | 本机个人阅读（Zen 阅读、虚拟列表、本地收藏、侧栏树） |
+| UX / 功能 | 多设备个人阅读（Zen 阅读、虚拟列表、服务端收藏、侧栏树） |
 | 入口 | `server.js`（`npm start` / Docker / launchd / systemd） |
 | 前端运行时 | 仍为 **单一** `public/app.bundle.min.js`（IIFE/全局脚本，非 type=module） |
 | 前端源码 | `public/src/01…15-*.js` 有序切片；`ORDER.json` / `order-data.js`；`npm run build:app` 拼装 |
@@ -58,10 +58,10 @@ scripts/
 4. **前端**：开发改 `public/src/*`，发布前 `npm run build:frontend`；CI 用 `npm run check:frontend`（含 app 恒等 + assets 哈希）。
 5. **单一 AI 准备**：`lib/background-jobs.prepareEntryForAiAsset`（含 `productHuntOfficialSite`）。
 
-### 请求路径（个人模式）
+### 请求路径（固定 owner）
 
 ```
-热路径媒体静态 → CSRF/JSON 中间件 → SEO/HTML → public static → /api/* 切片
+安全头/CSRF → Session 解析 → 登录路由 → 全局登录门禁 → 媒体/SEO/static/API 切片
 ```
 
 ## 前端切片顺序（ORDER.json）
@@ -109,15 +109,15 @@ scripts/
 > Deep Research：安全 → 性能 → 缩略/文档。公网 trust proxy 下环回 IP 特权优先堵。
 
 ### 安全（P0）
-- [x] ~~S1/S2 登录门禁~~ → **已废弃**：个人模式无登录；软删/AI 始终本机可用（靠 `HOST=127.0.0.1`）
-- [x] ~~S3 改密吊销 sessions~~ → **已废弃**（无改密路由）
+- [x] S1/S2 固定 owner 登录门禁：页面、API、RSS 和媒体默认拒绝匿名访问
+- [x] S3 `OWNER_PASSWORD` 改动后吊销旧 sessions
 - [x] S4 AI Base URL DNS 公网校验（对齐 fetcher SSRF；Node 26 无 lookupSync 时 spawn 回退）
 - [x] S5 CSRF：Origin 缺失时收紧（Referer / Sec-Fetch-Site / Cookie）；无 Origin 且无 Cookie 时仅 localhost/127.0.0.1/::1 放宽
-- [x] ~~S6 `refresh-hint` 需登录~~ → **已废弃**：本机始终允许
+- [x] S6 `refresh-hint` 位于全局 owner 门禁之后
 - [x] S24 `HOST` 默认 `127.0.0.1`（`.env.example` 对齐）
 - [x] S25 translation/refresh 限流（30/10 · 10/10）
 - [x] S26 crawl shell 硬化：`umask 077` / flock 单实例 / mkdir 700 / profile basename / 不回写绝对路径 plist；gitignore blog-crawl/logs/plist
-- [x] S27 清理登录意图：auth noop、`ZEN_PERSONAL`/ADMIN 环境说明移除、文档改为个人无账号
+- [x] S27 固定单用户鉴权：无注册与多用户入口，恢复 owner Session 和服务端阅读状态
 
 ### 性能（P1）
 - [x] S8 cache.json 写路径：无锁竞争时跳过全量读盘
@@ -224,7 +224,7 @@ ai.zen.reader.zhihu-crawl  每日 09:00 本地时区
 | 翻译 | README 大表 dual 输出易 length→漏译：单块上限≈2200 + dual 估算拆碎；**目录/元数据表透传不进模型**（防「Github仓库 RL算法…」墙）；JSON 坏片/漏块不整篇死；模型回 p 墙则强制回源 table |
 | 入库 | `entries`（`repo-brief` HTML）；**不**进 `user_submissions` |
 | 护栏 | `shouldAutoFetchOriginal` / `fetchEntryOriginal` 短路（禁止当文章补抓）；**可读可译** README/简介 |
-| 鉴权 | 个人模式无登录；本机始终可写 |
+| 鉴权 | 固定 owner Session；写操作与内容读取均需登录 |
 
 manual 分流：`contentKind==='repo'` → `listEntriesBySource`；个人精选仍 `getSubmittedEntries`。
 

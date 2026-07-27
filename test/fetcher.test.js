@@ -9,8 +9,12 @@ const testDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'qmreader-fetcher-test
 process.env.QMREADER_DATA_DIR = testDataDir;
 
 const fetcher = require('../lib/fetcher');
+const store = require('../lib/store');
 
-after(() => fs.rmSync(testDataDir, { recursive: true, force: true }));
+after(() => {
+  store.closeDatabase();
+  fs.rmSync(testDataDir, { recursive: true, force: true });
+});
 
 function runLookup(lookup, hostname, options = {}) {
   return new Promise((resolve, reject) => {

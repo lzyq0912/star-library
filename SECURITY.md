@@ -8,11 +8,7 @@ QMReader is maintained from the `main` branch. Public reports should target the 
 
 Please do not open a public issue for vulnerabilities or leaked credentials.
 
-Report security issues privately to the maintainer:
-
-- GitHub: [@joeseesun](https://github.com/joeseesun)
-- X: [@vista8](https://x.com/vista8)
-- Website: [qiaomu.ai](https://qiaomu.ai)
+Report security issues privately through the repository owner's preferred contact channel.
 
 Include:
 
@@ -25,10 +21,12 @@ Include:
 
 - Keep `.env`, `.env.local`, runtime SQLite files, cache files, logs, and screenshots out of Git.
 - The repository intentionally ships only `.env.example` with empty key values.
-- Server-side provider keys are loaded from environment variables or env files.
-- User-supplied AI keys are stored in browser localStorage and are sent only to the QMReader backend for provider calls.
-- Public comments, chat messages, translations, and rewrites are public assets; do not paste private keys or confidential content into them.
+- Server-side fallback provider keys are loaded from environment variables or env files.
+- `OWNER_PASSWORD` is required for the fixed owner account and is stored in SQLite only as a scrypt hash. Do not commit it or expose the server's `.env` file.
+- User-supplied AI keys are encrypted with AES-256-GCM using `APP_ENCRYPTION_KEY` and stored in SQLite. API responses expose only a masked hint, never plaintext or the internal credential ID.
+- Browsers send only an AI profile ID for provider calls. Back up the SQLite database and encryption key separately; losing the key makes stored AI credentials unrecoverable.
+- Comments, chat messages, translations, and rewrites remain private behind owner authentication; still avoid placing credentials in content or prompts.
 
 ## Network Boundary
 
-QMReader rejects non-HTTPS AI base URLs and blocks localhost/private network AI base URLs. This reduces SSRF risk but does not replace normal deployment hardening.
+QMReader rejects non-HTTPS AI base URLs and blocks localhost/private network AI base URLs. All reader content requires an HttpOnly owner Session. Terminate TLS at a reverse proxy and keep the application port bound to the local host. This reduces risk but does not replace normal deployment hardening.

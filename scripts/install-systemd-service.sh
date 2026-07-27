@@ -30,6 +30,12 @@ if [[ ! -f "${APP_DIR}/package.json" ]]; then
   exit 1
 fi
 
+NODE_VERSION="$("${NODE_BIN}" -p "process.versions.node")"
+if ! "${NODE_BIN}" -e "const [major, minor] = process.versions.node.split('.').map(Number); process.exit(major > 22 || (major === 22 && minor >= 13) ? 0 : 1)"; then
+  echo "Node.js ${NODE_VERSION} is too old. QMReader requires Node.js 22.13.0 or newer; Node 24 LTS is recommended." >&2
+  exit 1
+fi
+
 cd "${APP_DIR}"
 "${NPM_BIN}" ci --omit=dev
 
@@ -42,6 +48,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=${APP_DIR}
+EnvironmentFile=-${APP_DIR}/.env
 Environment=NODE_ENV=production
 Environment=HOST=${HOST}
 Environment=PORT=${PORT}

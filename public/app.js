@@ -59,7 +59,7 @@ const READER_NAV_TABS = ['original'];
 const DEFAULT_READER_OPEN_TAB = 'original';
 const READER_OPEN_TABS = ['original'];
 
-/** 个人唯一模式，无登录 */
+/** 固定单 owner 模式；登录由服务端页面和 Session 处理。 */
 function isZenPersonalMode() {
   return true;
 }
@@ -681,6 +681,9 @@ function normalizeProfile(raw, index = 0) {
     temperature: clampTemperature(raw && raw.temperature),
     maxTokens: clampMaxTokens(raw && (raw.maxTokens || raw.max_tokens)),
     apiKey: String(raw && (raw.apiKey || raw.api_key) || '').trim(),
+    hasApiKey: Boolean(raw && (raw.hasApiKey || raw.has_api_key || raw.apiKey || raw.api_key)),
+    apiKeyMasked: String(raw && (raw.apiKeyMasked || raw.api_key_masked) || '').trim(),
+    serverPersisted: Boolean(raw && raw.serverPersisted),
     isDefault: hasDefaultFlag ? Boolean(raw.isDefault || raw.is_default) : index === 0,
     createdAt: Number(raw && raw.createdAt) || Date.now(),
     updatedAt: Number(raw && raw.updatedAt) || Date.now(),
@@ -853,6 +856,7 @@ const state = {
   me: null,
   authMode: 'login',
   aiProfiles: [],
+  aiSecretStorageReady: true,
   activeAiProfileId: '',
   rewriteAiProfileId: '',
   agentAiProfileId: '',
@@ -1719,35 +1723,101 @@ function ensureSingleDefault(profiles) {
   return profiles.map((profile, index) => ({ ...profile, isDefault: index === defaultIndex }));
 }
 
-function loadAiProfilesForScope() {
-  const scope = aiScope();
+function localAiProfilesForMigration(scope) {
   const stored = readJson(aiProfilesKey(scope), 'null');
-  let profiles = Array.isArray(stored) ? stored.map(normalizeProfile) : migrateLegacyAiProfiles();
-  if (!profiles.length) profiles = [createProfileFromPreset(DEFAULT_AI_PRESET_ID, { isDefault: true })];
+  const profiles = Array.isArray(stored) ? stored.map(normalizeProfile) : migrateLegacyAiProfiles();
+  return ensureSingleDefault(profiles).filter(profile => profile && profile.apiKey);
+}
+
+function clearLocalAiSecrets(scope) {
+  storage.removeItem(aiProfilesKey(scope));
+  storage.removeItem(aiActiveProfileKey(scope));
+  storage.removeItem(aiPurposeProfileKey('translation', scope));
+  storage.removeItem(aiPurposeProfileKey('rewrite', scope));
+  storage.removeItem(aiPurposeProfileKey('agent', scope));
+  storage.removeItem('qm_ai_configs');
+  storage.removeItem('qm_deepseek_key');
+}
+
+async function loadAiProfilesForScope() {
+  const scope = aiScope();
+  if (state.loadedAiScope === scope && state.aiProfiles.length) return state.aiProfiles;
+  let data = await api('/api/ai/profiles');
+  const migrationKey = `qm_ai_server_migrated:${scope}`;
+  if (!(data.profiles || []).length && storage.getItem(migrationKey) !== '1') {
+    const localProfiles = localAiProfilesForMigration(scope);
+    if (localProfiles.length) {
+      const activeId = storage.getItem(aiActiveProfileKey(scope));
+      try {
+        data = await api('/api/ai/profiles/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profiles: localProfiles,
+            settings: {
+              activeProfileId: activeId,
+              translationProfileId: storage.getItem(aiPurposeProfileKey('translation', scope)) || activeId,
+              rewriteProfileId: storage.getItem(aiPurposeProfileKey('rewrite', scope)) || activeId,
+              agentProfileId: storage.getItem(aiPurposeProfileKey('agent', scope)) || activeId,
+            },
+          }),
+        });
+        clearLocalAiSecrets(scope);
+      } catch (error) {
+        console.warn('AI profile migration skipped:', error.message || error);
+      }
+    }
+    if ((data.profiles || []).length || !localProfiles.length) storage.setItem(migrationKey, '1');
+  }
+  let profiles = (data.profiles || []).map((profile, index) => normalizeProfile({
+    ...profile,
+    serverPersisted: true,
+  }, index));
+  if (!profiles.length) profiles = [createProfileFromPreset(DEFAULT_AI_PRESET_ID, {
+    isDefault: true,
+    serverPersisted: false,
+    hasApiKey: false,
+  })];
   profiles = ensureSingleDefault(profiles);
   state.aiProfiles = profiles;
-  const activeId = storage.getItem(aiActiveProfileKey(scope));
+  const settings = data.settings || {};
+  const activeId = settings.activeProfileId;
   state.activeAiProfileId = profiles.some(profile => profile.id === activeId)
     ? activeId
     : (profiles.find(profile => profile.isDefault) || profiles[0]).id;
-  const rewriteId = storage.getItem(aiPurposeProfileKey('rewrite', scope));
-  const agentId = storage.getItem(aiPurposeProfileKey('agent', scope));
-  const translationId = storage.getItem(aiPurposeProfileKey('translation', scope));
+  const rewriteId = settings.rewriteProfileId;
+  const agentId = settings.agentProfileId;
+  const translationId = settings.translationProfileId;
   state.translationAiProfileId = profiles.some(profile => profile.id === translationId) ? translationId : state.activeAiProfileId;
   state.rewriteAiProfileId = profiles.some(profile => profile.id === rewriteId) ? rewriteId : state.activeAiProfileId;
   state.agentAiProfileId = profiles.some(profile => profile.id === agentId) ? agentId : state.activeAiProfileId;
   state.editingAiProfileId = state.activeAiProfileId;
+  state.aiSecretStorageReady = data.secretStorageReady !== false;
   state.loadedAiScope = scope;
-  persistAiProfiles();
+  return profiles;
 }
 
-function persistAiProfiles() {
-  const scope = aiScope();
-  storage.setItem(aiProfilesKey(scope), JSON.stringify(ensureSingleDefault(state.aiProfiles)));
-  if (state.activeAiProfileId) storage.setItem(aiActiveProfileKey(scope), state.activeAiProfileId);
-  if (state.translationAiProfileId) storage.setItem(aiPurposeProfileKey('translation', scope), state.translationAiProfileId);
-  if (state.rewriteAiProfileId) storage.setItem(aiPurposeProfileKey('rewrite', scope), state.rewriteAiProfileId);
-  if (state.agentAiProfileId) storage.setItem(aiPurposeProfileKey('agent', scope), state.agentAiProfileId);
+async function persistAiProfiles() {
+  const persistedIds = new Set(state.aiProfiles.filter(profile => profile.serverPersisted).map(profile => profile.id));
+  if (!persistedIds.size) return null;
+  const fallback = state.aiProfiles.find(profile => profile.isDefault && profile.serverPersisted)
+    || state.aiProfiles.find(profile => profile.serverPersisted);
+  const valid = id => persistedIds.has(id) ? id : fallback?.id || '';
+  try {
+    return await api('/api/ai/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        activeProfileId: valid(state.activeAiProfileId),
+        translationProfileId: valid(state.translationAiProfileId),
+        rewriteProfileId: valid(state.rewriteAiProfileId),
+        agentProfileId: valid(state.agentAiProfileId),
+      }),
+    });
+  } catch (error) {
+    toast('AI 用途配置未同步: ' + error.message, 4200);
+    return null;
+  }
 }
 
 function profileByIdOrDefault(profileId = '') {
@@ -1775,7 +1845,7 @@ function configFromProfile(profile) {
     provider: profile.provider || DEFAULT_AI_PRESET_ID,
     providerName: profile.providerName || profile.name || profile.provider || 'AI',
     providerType: profile.providerType || 'openai_compatible',
-    apiKey: String(profile.apiKey || '').trim(),
+    hasApiKey: Boolean(profile.hasApiKey || profile.apiKey),
     baseUrl: normalizeBaseUrl(profile.baseUrl),
     model: String(profile.model || '').trim(),
     temperature: clampTemperature(profile.temperature),
@@ -1792,7 +1862,7 @@ function aiConfigForPurpose(purpose = '') {
 }
 
 function hasUsableAiConfig(config = currentAiConfig()) {
-  return Boolean(config.apiKey && config.baseUrl && config.model);
+  return Boolean(config.profileId && config.hasApiKey && config.baseUrl && config.model);
 }
 
 function aiHeaderValue(value, fallback = '') {
@@ -1804,16 +1874,9 @@ function aiHeaderValue(value, fallback = '') {
 }
 
 function aiHeadersFromConfig(config) {
-  if (!String(config.apiKey || '').trim()) return {};
+  if (!config || !config.profileId || !config.hasApiKey) return {};
   return {
-    'X-AI-Provider': aiHeaderValue(config.provider, 'custom'),
-    'X-AI-Provider-Name': aiHeaderValue(config.providerName || config.profileName, config.provider || 'AI'),
-    'X-AI-Provider-Type': aiHeaderValue(config.providerType, 'openai_compatible'),
-    'X-AI-Key': aiHeaderValue(config.apiKey),
-    'X-AI-Base-URL': aiHeaderValue(config.baseUrl),
-    'X-AI-Model': aiHeaderValue(config.model),
-    'X-AI-Temperature': String(config.temperature ?? ''),
-    'X-AI-Max-Tokens': String(config.maxTokens ?? ''),
+    'X-AI-Profile-ID': aiHeaderValue(config.profileId),
   };
 }
 
@@ -1835,7 +1898,7 @@ function translationAiConfig() {
     provider: 'deepseek',
     providerName: 'DeepSeek',
     providerType: 'openai_compatible',
-    apiKey: '',
+    hasApiKey: false,
     baseUrl: '',
     model: '',
     temperature: 0.15,
@@ -1852,7 +1915,7 @@ function rewriteAiConfig() {
     provider: 'deepseek',
     providerName: 'DeepSeek',
     providerType: 'openai_compatible',
-    apiKey: '',
+    hasApiKey: false,
     baseUrl: '',
     model: '',
     temperature: 0.6,
@@ -1888,6 +1951,9 @@ async function api(path, opts) {
       const data = await res.json();
       if (data && data.error) message = data.error;
     } catch { /* keep HTTP status */ }
+    if (res.status === 401) {
+      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    }
     throw new Error(message);
   }
   return res.json();
@@ -2250,7 +2316,31 @@ function applyGuestEntryStates() {
 }
 
 async function loadUserEntryStates() {
-  applyGuestEntryStates();
+  let data = await api('/api/me/entry-states');
+  let states = data && data.states ? data.states : {};
+  const migrationKey = `qm_entry_state_migrated:${state.me && state.me.id || 'owner'}`;
+  const localHistory = historyEntriesForStorage(state.guestHistory);
+  const hasLocalState = state.guestRead.size || state.guestStarred.size || localHistory.length;
+  if (storage.getItem(migrationKey) !== '1' && hasLocalState) {
+    data = await api('/api/me/entry-states/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        read: [...state.guestRead],
+        starred: [...state.guestStarred],
+        history: localHistory,
+      }),
+    });
+    states = data && data.states ? data.states : states;
+  }
+  storage.setItem(migrationKey, '1');
+  state.read = new Set(Array.isArray(states.read) ? states.read : []);
+  state.starred = new Set(Array.isArray(states.starred) ? states.starred : []);
+  state.history = new Map(
+    (Array.isArray(states.history) ? states.history : [])
+      .filter(item => item && item.entryId)
+      .map(item => [item.entryId, Number(item.viewedAt) || Date.now()]),
+  );
 }
 
 function defaultEntryStats(entryId = '') {
@@ -2652,8 +2742,31 @@ async function toggleEntryRead(entryId, force) {
 }
 
 async function syncEntryState(entryId, patch) {
-  persist();
-  return null;
+  try {
+    return await api(`/api/me/entry-states/${encodeURIComponent(entryId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+  } catch (error) {
+    toast(`状态未同步：${error.message}`, 4200);
+    return null;
+  }
+}
+
+async function syncEntriesRead(entryIds) {
+  const ids = [...new Set((entryIds || []).filter(Boolean))].slice(0, 1000);
+  if (!ids.length) return null;
+  try {
+    return await api('/api/me/entry-states/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entryIds: ids }),
+    });
+  } catch (error) {
+    toast(`已读状态未同步：${error.message}`, 4200);
+    return null;
+  }
 }
 
 function recordEntryView(entryId) {
@@ -2665,14 +2778,18 @@ function recordEntryView(entryId) {
   api(`/api/entry/${encodeURIComponent(id)}/view`, { method: 'POST' })
     .then(data => {
       if (data && data.stats) mergeEntryStats(id, data.stats);
+      if (data && data.state && data.state.viewedAt) {
+        state.history.set(id, Number(data.state.viewedAt));
+      }
     })
     .catch(() => {});
 }
 
 async function loadMe() {
-  state.me = null;
-  applyGuestEntryStates();
-  loadAiProfilesForScope();
+  const data = await api('/api/me');
+  setCurrentUser(data.user || null);
+  await loadUserEntryStates();
+  await loadAiProfilesForScope();
   renderAuthState();
   renderEntryStateUi();
   renderComments();
@@ -4978,10 +5095,11 @@ function showEntryContextMenu(event, entry) {
 }
 
 function renderAuthState() {
-  // 个人模式：无登录 UI，只保留侧栏 footer / AI 设置 / 删文控件
+  // 单用户模式：仅展示退出，不提供注册或账号切换。
   $('#auth-open')?.classList.add('hidden');
   $('#account-info')?.classList.add('hidden');
   $('#account-settings-open')?.classList.add('hidden');
+  $('#logout-btn')?.classList.toggle('hidden', !state.me);
   const footer = $('.sidebar-footer');
   if (footer) footer.classList.remove('hidden');
   renderAdminEntryControls();
@@ -4989,7 +5107,7 @@ function renderAuthState() {
   updateAgentControls();
 }
 
-function setAccountMenuOpen() { /* no-op：无账号菜单 */ }
+function setAccountMenuOpen() { /* no-op：固定 owner 不提供账号菜单 */ }
 
 function toggleAccountMenu() { /* no-op */ }
 
@@ -5008,7 +5126,7 @@ function renderSidebarAiSettings() {
   }
 }
 
-function setAuthMode() { /* no-op：无登录 */ }
+function setAuthMode() { /* no-op：登录使用独立服务端页面 */ }
 function setAuthFormEnabled() { /* no-op */ }
 function setChangePasswordFormEnabled() { /* no-op */ }
 function openAuth() { /* no-op：个人模式永不登录 */ }
@@ -5140,9 +5258,16 @@ async function submitReaderLink() {
   }
 }
 
-async function submitAuth() { /* no-op：无登录 API */ }
+async function submitAuth() { /* no-op：主应用内不承载登录表单 */ }
 async function submitChangePassword() { /* no-op */ }
-async function logout() { /* no-op */ }
+async function logout() {
+  try {
+    await api('/api/auth/logout', { method: 'POST' });
+  } finally {
+    setCurrentUser(null);
+    window.location.assign('/login');
+  }
+}
 
 function renderContributorDirectory() {
   const list = visibleContributors();
@@ -7383,16 +7508,27 @@ function renderTitle(e) {
 
 function updateFetchOriginalButton(entry = state.activeEntry) {
   const btn = $('#reader-fetch-original');
-  if (!btn) return;
+  const status = $('#reader-original-status');
   const offline = Boolean(entry && isLocalOfflineSourceId(entry.sourceId));
   const canFetch = Boolean(entry && /^https?:\/\//i.test(entry.link || '')) && !offline;
   const hasFull = Boolean(entry && (entry.originalFetchedAt || hasUsableOriginalContent(entry) || offline));
+  const failed = Boolean(entry && entry.originalFetchError && !hasFull);
+  if (status) {
+    status.textContent = state.fetchingOriginal
+      ? (failed ? '正在重新获取原文…' : '正在获取原文…')
+      : failed ? `原文获取失败：${entry.originalFetchError}` : '';
+    status.classList.toggle('hidden', !state.fetchingOriginal && !failed);
+    status.classList.toggle('error', failed && !state.fetchingOriginal);
+  }
+  if (!btn) return;
   // 失败后仍显示按钮，方便重试（尤其是 DNS/内网误杀）；本地离线源始终隐藏
   btn.classList.toggle('hidden', !canFetch || hasFull);
   btn.disabled = !canFetch || hasFull || state.fetchingOriginal;
-  setButtonIconLabel(btn, state.fetchingOriginal ? 'loader-circle' : 'book-open-text', state.fetchingOriginal ? '获取中…' : '获取原文', {
+  const label = state.fetchingOriginal ? '获取中…' : failed ? '重试原文' : '获取原文';
+  setButtonIconLabel(btn, state.fetchingOriginal ? 'loader-circle' : failed ? 'refresh-cw' : 'book-open-text', label, {
     className: state.fetchingOriginal ? 'app-icon app-icon-spin' : 'app-icon',
   });
+  btn.setAttribute('aria-label', label);
   btn.title = offline
     ? '本地导入源，无需抓取网页'
     : (entry && entry.originalFetchError ? `上次获取失败：${entry.originalFetchError}` : '从原始网页提取正文');
@@ -14414,10 +14550,11 @@ function renderManage(target = '#manage-list', statusTarget = '#manage-status') 
     row.innerHTML = `
       ${sourceFaviconHtml(s)}
       <div class="m-info">
-        <div class="m-name">${escapeHtml(s.name)} <span style="font-weight:400;color:var(--text-2);font-size:11px">${CATEGORY_LABELS[s.category]}</span></div>
-        ${s.note || s.description ? `<div class="m-note">${escapeHtml(s.note || s.description)}</div>` : ''}
+        <div class="m-name">${escapeHtml(s.name)} <span style="font-weight:400;color:var(--text-2);font-size:11px">${CATEGORY_LABELS[s.category]}</span>${s.custom ? ' <span class="m-custom">自定义</span>' : ''}</div>
+        ${s.note || s.description || s.feedUrl ? `<div class="m-note" title="${escapeHtml(s.feedUrl || '')}">${escapeHtml(s.note || s.description || s.feedUrl)}</div>` : ''}
       </div>
       <span class="m-status ${s.status === 'error' ? 'error' : s.status === 'ok' ? 'ok' : ''}">${statusTxt}</span>
+      ${s.custom ? `<button class="icon-btn m-delete" type="button" title="删除订阅" aria-label="删除 ${escapeHtml(s.name)}"><span data-qm-icon="trash-2"></span></button>` : ''}
       <button class="switch ${s.enabled ? 'on' : ''}" title="${s.enabled ? '点击禁用' : '点击启用'}"></button>`;
     row.querySelector('.switch').onclick = async (ev) => {
       ev.stopPropagation();
@@ -14431,7 +14568,61 @@ function renderManage(target = '#manage-list', statusTarget = '#manage-status') 
         reload({ keepReader: true });
       }, r.enabled ? 4000 : 0);
     };
+    const deleteButton = row.querySelector('.m-delete');
+    if (deleteButton) deleteButton.onclick = async (ev) => {
+      ev.stopPropagation();
+      const deleted = await deleteSourceById(s.id, {
+        reason: 'custom subscription deleted',
+        confirm: true,
+      });
+      if (!deleted) return;
+      await loadSources();
+      renderManage(target, statusTarget);
+    };
     el.appendChild(row);
+  }
+  hydrateLucideIcons(el);
+}
+
+function setSubscriptionFormOpen(open) {
+  const form = $('#subscription-form');
+  const button = $('#manage-add-source');
+  if (!form || !button) return;
+  form.classList.toggle('hidden', !open);
+  button.setAttribute('aria-expanded', open ? 'true' : 'false');
+  button.classList.toggle('primary', open);
+  if (open) setTimeout(() => $('#subscription-url')?.focus(), 20);
+}
+
+async function submitCustomSubscription() {
+  const button = $('#subscription-submit');
+  const url = $('#subscription-url').value.trim();
+  if (!url || !button) return;
+  button.disabled = true;
+  button.textContent = '正在识别…';
+  try {
+    const data = await api('/api/subscriptions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url,
+        name: $('#subscription-name').value.trim(),
+        category: $('#subscription-category').value,
+        refreshIntervalMs: Number($('#subscription-refresh-interval').value),
+      }),
+    });
+    $('#subscription-form').reset();
+    $('#subscription-refresh-interval').value = '3600000';
+    setSubscriptionFormOpen(false);
+    await loadSources();
+    renderManage();
+    renderSidebar();
+    toast(`已添加 ${data.source?.name || '订阅源'}，正在抓取`);
+  } catch (error) {
+    toast('添加订阅失败: ' + error.message, 5200);
+  } finally {
+    button.disabled = false;
+    button.textContent = '添加订阅';
   }
 }
 
@@ -14733,7 +14924,7 @@ function renderAiStatus() {
 function aiProfileSelectLabel(profile) {
   const model = String(profile && profile.model || '').trim();
   const name = String(profile && profile.name || profile && profile.providerName || 'AI 配置').trim();
-  const suffix = profile && profile.apiKey ? '' : ' · 未配置';
+  const suffix = profile && profile.hasApiKey ? '' : ' · 未配置';
   return `${name}${model ? ` · ${model}` : ''}${suffix}`;
 }
 
@@ -14785,7 +14976,7 @@ function renderAiProfileList() {
     btn.innerHTML = `
       <span class="ai-profile-name">${escapeHtml(profile.name)}</span>
       <span class="ai-profile-meta">${escapeHtml(profile.providerName || profile.provider)} · ${escapeHtml(profile.model || '未填模型')}</span>
-      <span class="ai-profile-key">${profile.apiKey ? escapeHtml(maskApiKey(profile.apiKey)) : '未填 API Key'}${profile.isDefault ? ' · 默认' : ''}</span>`;
+      <span class="ai-profile-key">${profile.hasApiKey ? escapeHtml(profile.apiKeyMasked || '已安全保存') : '未填 API Key'}${profile.isDefault ? ' · 默认' : ''}</span>`;
     btn.onclick = () => {
       state.editingAiProfileId = profile.id;
       state.activeAiProfileId = profile.id;
@@ -14860,7 +15051,8 @@ function fillAiProfileForm(profile) {
   if (keyInput) {
     const active = document.activeElement === keyInput;
     if (!active) keyInput.setAttribute('readonly', 'readonly');
-    keyInput.value = profile.apiKey || '';
+    keyInput.value = '';
+    keyInput.placeholder = profile.hasApiKey ? '已安全保存在服务器，留空则不修改' : 'sk-...';
   }
   $('#ai-base-url').value = profile.baseUrl || '';
   $('#ai-model').value = profile.model || '';
@@ -14870,14 +15062,19 @@ function fillAiProfileForm(profile) {
   const keyLink = $('#ai-key-link');
   keyLink.href = profile.apiKeyUrl || '#';
   keyLink.classList.toggle('hidden', !profile.apiKeyUrl);
-  $('#ai-config-note').textContent = profile.apiKey
-    ? `当前 API Key：${maskApiKey(profile.apiKey)}`
-    : 'API Key 只保存在当前浏览器，不写入服务器数据库。';
+  $('#ai-config-note').textContent = profile.hasApiKey
+    ? `当前 API Key：${profile.apiKeyMasked || '已安全保存'} · 服务器加密存储`
+    : state.aiSecretStorageReady
+      ? 'API Key 保存后由服务器加密存储，并同步到所有设备。'
+      : '服务器尚未配置 APP_ENCRYPTION_KEY，不能保存 API Key。';
   renderQuickModels(quickModelsForProfile(profile));
 }
 
 function renderAiSettings() {
-  if (!state.aiProfiles.length) loadAiProfilesForScope();
+  if (!state.aiProfiles.length) {
+    loadAiProfilesForScope().then(renderAiSettings).catch(error => toast('加载 AI 配置失败: ' + error.message, 5000));
+    return;
+  }
   if (!state.editingAiProfileId) state.editingAiProfileId = currentAiProfile().id;
   renderAiStatus();
   renderAiProfileList();
@@ -14896,6 +15093,7 @@ function renderAiSettings() {
 
 function readAiProfileForm() {
   const current = getEditingAiProfile() || createCustomProfile();
+  const apiKey = $('#ai-api-key').value.trim();
   return normalizeProfile({
     ...current,
     name: $('#ai-profile-name').value.trim(),
@@ -14908,7 +15106,10 @@ function readAiProfileForm() {
     model: $('#ai-model').value.trim(),
     temperature: clampTemperature($('#ai-temperature').value),
     maxTokens: clampMaxTokens($('#ai-max-tokens').value),
-    apiKey: $('#ai-api-key').value.trim(),
+    apiKey,
+    hasApiKey: Boolean(apiKey || current.hasApiKey),
+    apiKeyMasked: current.apiKeyMasked || '',
+    serverPersisted: Boolean(current.serverPersisted),
     isDefault: $('#ai-default-profile').checked,
     updatedAt: Date.now(),
   });
@@ -14917,8 +15118,20 @@ function readAiProfileForm() {
 function applyAiPreset(presetId) {
   const current = getEditingAiProfile() || createCustomProfile();
   const profile = presetId === 'custom'
-    ? createCustomProfile({ id: current.id, apiKey: current.apiKey, isDefault: current.isDefault })
-    : createProfileFromPreset(presetId, { id: current.id, apiKey: current.apiKey, isDefault: current.isDefault });
+    ? createCustomProfile({
+      id: current.id,
+      hasApiKey: current.hasApiKey,
+      apiKeyMasked: current.apiKeyMasked,
+      serverPersisted: current.serverPersisted,
+      isDefault: current.isDefault,
+    })
+    : createProfileFromPreset(presetId, {
+      id: current.id,
+      hasApiKey: current.hasApiKey,
+      apiKeyMasked: current.apiKeyMasked,
+      serverPersisted: current.serverPersisted,
+      isDefault: current.isDefault,
+    });
   fillAiProfileForm(profile);
   $('#ai-config-note').textContent = presetId === 'custom'
     ? '自定义服务需要兼容 OpenAI Chat Completions 协议。'
@@ -14935,48 +15148,65 @@ function runPendingAiAction() {
   if (action === 'agent' && text) setTimeout(() => sendAgentMessage(text), 0);
 }
 
-function saveAiProfileFromForm({ silent = false } = {}) {
+async function saveAiProfileFromForm({ silent = false, resumePending = true } = {}) {
   // 失焦 secret 字段，避免提交瞬间被密码管理器当成登录
   $('#ai-api-key')?.blur();
-  const profile = readAiProfileForm();
-  if (!profile.name || !profile.baseUrl || !profile.model) {
+  const draft = readAiProfileForm();
+  if (!draft.name || !draft.baseUrl || !draft.model) {
     toast('请填写配置名称、Base URL 和模型');
     return null;
   }
 
-  const exists = state.aiProfiles.some(item => item.id === profile.id);
-  let nextProfiles = exists
-    ? state.aiProfiles.map(item => (item.id === profile.id ? profile : item))
-    : [...state.aiProfiles, profile];
-  if (profile.isDefault || !nextProfiles.some(item => item.isDefault)) {
-    nextProfiles = nextProfiles.map(item => ({ ...item, isDefault: item.id === profile.id }));
+  const current = getEditingAiProfile();
+  try {
+    const data = await api(current && current.serverPersisted
+      ? `/api/ai/profiles/${encodeURIComponent(current.id)}`
+      : '/api/ai/profiles', {
+      method: current && current.serverPersisted ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(draft),
+    });
+    const profile = normalizeProfile({ ...data.profile, serverPersisted: true });
+    const exists = state.aiProfiles.some(item => item.id === (current && current.id));
+    let nextProfiles = exists
+      ? state.aiProfiles.map(item => (item.id === current.id ? profile : item))
+      : [...state.aiProfiles, profile];
+    if (profile.isDefault || !nextProfiles.some(item => item.isDefault)) {
+      nextProfiles = nextProfiles.map(item => ({ ...item, isDefault: item.id === profile.id }));
+    } else {
+      nextProfiles = nextProfiles.map(item => ({ ...item, isDefault: item.id === profile.id ? profile.isDefault : item.isDefault }));
+    }
+    state.aiProfiles = ensureSingleDefault(nextProfiles);
+    state.activeAiProfileId = profile.id;
+    if (state.aiConfigReason === 'translation') state.translationAiProfileId = profile.id;
+    if (state.aiConfigReason === 'rewrite') state.rewriteAiProfileId = profile.id;
+    if (state.aiConfigReason === 'agent') state.agentAiProfileId = profile.id;
+    state.editingAiProfileId = profile.id;
+    await persistAiProfiles();
+    renderAiSettings();
+    if (!silent) toast('AI 配置已保存到服务器');
+    const reasonConfig = state.aiConfigReason ? aiConfigForPurpose(state.aiConfigReason) : currentAiConfig();
+    if (resumePending && hasUsableAiConfig(reasonConfig) && state.pendingAiAction) {
+      closeAiConfigModal();
+      runPendingAiAction();
+    }
+    return profile;
+  } catch (error) {
+    toast('保存 AI 配置失败: ' + error.message, 5200);
+    return null;
   }
-  state.aiProfiles = ensureSingleDefault(nextProfiles);
-  state.activeAiProfileId = profile.id;
-  if (state.aiConfigReason === 'translation') state.translationAiProfileId = profile.id;
-  if (state.aiConfigReason === 'rewrite') state.rewriteAiProfileId = profile.id;
-  if (state.aiConfigReason === 'agent') state.agentAiProfileId = profile.id;
-  state.editingAiProfileId = profile.id;
-  persistAiProfiles();
-  renderAiSettings();
-  if (!silent) toast('AI 配置已保存');
-  const reasonConfig = state.aiConfigReason ? aiConfigForPurpose(state.aiConfigReason) : currentAiConfig();
-  if (hasUsableAiConfig(reasonConfig) && state.pendingAiAction) {
-    closeAiConfigModal();
-    runPendingAiAction();
-  }
-  return profile;
 }
 
 function addAiProfile() {
   const profile = createProfileFromPreset(DEFAULT_AI_PRESET_ID, {
     name: `DeepSeek ${state.aiProfiles.length + 1}`,
     isDefault: state.aiProfiles.length === 0,
+    serverPersisted: false,
+    hasApiKey: false,
   });
   state.aiProfiles = ensureSingleDefault([...state.aiProfiles, profile]);
   state.activeAiProfileId = profile.id;
   state.editingAiProfileId = profile.id;
-  persistAiProfiles();
   renderAiSettings();
 }
 
@@ -14990,7 +15220,21 @@ async function deleteAiProfile() {
     danger: true,
   });
   if (!ok) return;
-  state.aiProfiles = ensureSingleDefault(state.aiProfiles.filter(item => item.id !== profile.id));
+  if (!profile.serverPersisted) {
+    state.aiProfiles = ensureSingleDefault(state.aiProfiles.filter(item => item.id !== profile.id));
+    state.activeAiProfileId = (state.aiProfiles.find(item => item.isDefault) || state.aiProfiles[0]).id;
+    state.editingAiProfileId = state.activeAiProfileId;
+    renderAiSettings();
+    return;
+  }
+  let data;
+  try {
+    data = await api(`/api/ai/profiles/${encodeURIComponent(profile.id)}`, { method: 'DELETE' });
+  } catch (error) {
+    toast('删除 AI 配置失败: ' + error.message, 5000);
+    return;
+  }
+  state.aiProfiles = ensureSingleDefault((data.profiles || []).map(item => normalizeProfile({ ...item, serverPersisted: true })));
   state.activeAiProfileId = (state.aiProfiles.find(item => item.isDefault) || state.aiProfiles[0]).id;
   if (!state.aiProfiles.some(item => item.id === state.translationAiProfileId)) state.translationAiProfileId = state.activeAiProfileId;
   if (!state.aiProfiles.some(item => item.id === state.rewriteAiProfileId)) state.rewriteAiProfileId = state.activeAiProfileId;
@@ -15026,10 +15270,11 @@ function closeAiConfigModal() {
 }
 
 async function fetchAiModels() {
-  const profile = readAiProfileForm();
+  const profile = await saveAiProfileFromForm({ silent: true, resumePending: false });
+  if (!profile) return;
   const config = configFromProfile(profile);
-  if (!config.apiKey || !config.baseUrl) {
-    toast('请先填写 API Key 和 Base URL');
+  if (!config.hasApiKey || !config.baseUrl) {
+    toast('请先填写并保存 API Key 和 Base URL');
     return;
   }
   const btn = $('#ai-fetch-models');
@@ -15061,10 +15306,11 @@ async function fetchAiModels() {
 }
 
 async function testAiConnection() {
-  const profile = readAiProfileForm();
+  const profile = await saveAiProfileFromForm({ silent: true, resumePending: false });
+  if (!profile) return;
   const config = configFromProfile(profile);
   if (!hasUsableAiConfig(config)) {
-    toast('请先填写 API Key、Base URL 和模型');
+    toast('请先填写并保存 API Key、Base URL 和模型');
     return;
   }
   const btn = $('#ai-test');
@@ -15567,6 +15813,7 @@ $('#mark-read-btn').onclick = async () => {
   const ids = visibleEntries().map(e => e.id);
   ids.forEach(id => markCatalogEntryRead(id));
   persist();
+  syncEntriesRead(ids);
   renderList();
   updateSidebarNavCounts();
   updateReaderReadButton();
@@ -16011,7 +16258,7 @@ function handleAnnotationListClick(e) {
     return;
   }
   if (e.target.closest('[data-annotation-login]')) {
-    return; // 个人模式无登录
+    return; // 主应用已由服务端 owner Session 保护
   }
   const helpful = e.target.closest('[data-annotation-helpful]');
   if (helpful) {
@@ -16174,7 +16421,7 @@ $('#comments-list').onkeydown = (e) => {
 $$('.comment-sort-btn').forEach(btn => {
   btn.onclick = () => setCommentSort(btn.dataset.commentSort);
 });
-// 个人模式：无登录/账号菜单绑定
+// 固定 owner：主应用只提供退出，登录由 /login 页面处理。
 $('#ai-settings-btn')?.addEventListener('click', () => openAiConfigModal('settings'));
 const translationProfileSelect = $('#translation-profile-select');
 if (translationProfileSelect) translationProfileSelect.onchange = (e) => setAiProfileForPurpose('translation', e.target.value);
@@ -16187,7 +16434,7 @@ $('#profile-manage-btn').onclick = () => {
   openAdminPage();
 };
 $('#admin-refresh-btn').onclick = refreshAll;
-$('#admin-manage-modal-btn').onclick = () => { renderManage(); $('#manage-modal').classList.remove('hidden'); };
+$('#admin-manage-modal-btn').onclick = () => { renderManage(); setSubscriptionFormOpen(false); $('#manage-modal').classList.remove('hidden'); };
 $('#admin-back-dashboard').onclick = () => openMyCommentsModal({ tab: 'profile' });
 $('#admin-close').onclick = closeAdminPage;
 $('#admin-submission-search-form').onsubmit = (event) => {
@@ -16318,10 +16565,18 @@ $('#ai-quick-models').onclick = (e) => {
 $('#ai-max-tokens').oninput = (e) => { e.target.value = e.target.value.replace(/[^\d]/g, ''); };
 $('#ai-fetch-models').onclick = fetchAiModels;
 $('#ai-test').onclick = testAiConnection;
-$('#manage-btn').onclick = () => { renderManage(); $('#manage-modal').classList.remove('hidden'); };
-$('#manage-close').onclick = () => $('#manage-modal').classList.add('hidden');
+$('#manage-btn').onclick = () => { renderManage(); setSubscriptionFormOpen(false); $('#manage-modal').classList.remove('hidden'); };
+$('#manage-add-source').onclick = () => setSubscriptionFormOpen($('#subscription-form').classList.contains('hidden'));
+$('#subscription-form').onsubmit = (event) => {
+  event.preventDefault();
+  submitCustomSubscription();
+};
+$('#manage-close').onclick = () => {
+  setSubscriptionFormOpen(false);
+  $('#manage-modal').classList.add('hidden');
+};
 $('#manage-modal').onclick = (e) => { if (e.target.id === 'manage-modal') $('#manage-modal').classList.add('hidden'); };
-// 个人模式：无 auth / change-password DOM 绑定
+$('#logout-btn')?.addEventListener('click', logout);
 // 投稿入口已内嵌到「个人精选 / GitHub 项目」源行；顶层按钮若仍存在则兼容
 if ($('#submit-link-open')) {
   $('#submit-link-open').onclick = () => openSubmitLinkModal({ mode: 'article' });
@@ -16655,7 +16910,11 @@ window.addEventListener('resize', rafThrottle(() => {
     storage.setItem('qm_reader_immersive', '0');
   }
   hydrateLucideIcons();
-  loadAiProfilesForScope();
+  try {
+    await loadMe();
+  } catch {
+    return;
+  }
   renderAgentPrompts();
   applyReaderPrefs();
   renderAiSettings();

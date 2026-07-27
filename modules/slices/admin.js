@@ -84,6 +84,30 @@ function registerAdminRoutes(app, { refreshRateLimit = (req, res, next) => next(
     });
     res.json({ id: src.id, enabled });
   });
+
+  app.post('/api/subscriptions', async (req, res) => {
+    try {
+      const body = req.body || {};
+      const url = String(body.url || '').trim();
+      if (!url) return res.status(400).json({ error: '请填写网站或 RSS 地址' });
+      const source = await fetcher.createCustomSource({
+        url,
+        name: body.name,
+        category: body.category,
+        refreshIntervalMs: body.refreshIntervalMs,
+      });
+      const refresh = startBackgroundJob({
+        kind: 'refresh',
+        sourceId: source.id,
+        sourceIds: [source.id],
+        reason: 'subscription-created',
+      });
+      const meta = fetcher.getSourcesMeta().find(item => item.id === source.id) || source;
+      return res.status(201).json({ source: meta, refresh });
+    } catch (error) {
+      return sendError(res, error, '添加订阅失败');
+    }
+  });
 }
 
 module.exports = { registerAdminRoutes };

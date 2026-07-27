@@ -6,11 +6,17 @@ function applyCoreMiddleware(app) {
   app.set('trust proxy', 1);
   app.use(compression());
   app.use(express.json({ limit: '2mb' }));
+  app.use(express.urlencoded({ extended: false, limit: '16kb' }));
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    if (req.secure) {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
     const unsafe = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
     if (!unsafe) return next();
     if (String(req.get('sec-fetch-site') || '').toLowerCase() === 'cross-site') {

@@ -4,6 +4,7 @@ const deepseek = require('../../lib/deepseek');
 const { requestAiConfig } = require('../../lib/request-ai-config');
 const { prepareEntryForAiAsset } = require('../../lib/background-jobs');
 const { sendError } = require('../shared/http');
+const { encryptionKey } = require('../../lib/secrets');
 
 /** 翻译输出预算下限 */
 const TRANSLATION_CLIENT_MAX_TOKENS_FLOOR = 8000;
@@ -18,6 +19,14 @@ function resolveTranslationAiConfig(req) {
       maxTokens: Math.max(Number(client.maxTokens) || 0, TRANSLATION_CLIENT_MAX_TOKENS_FLOOR),
     };
   }
+  const saved = store.getAiProfileConfigForPurpose('translation');
+  if (saved && String(saved.apiKey || '').trim()) {
+    return {
+      ...saved,
+      temperature: saved.temperature || 0.1,
+      maxTokens: Math.max(Number(saved.maxTokens) || 0, TRANSLATION_CLIENT_MAX_TOKENS_FLOOR),
+    };
+  }
   const server = deepseek.getServerTranslationConfig();
   return {
     apiKey: server.apiKey,
@@ -28,6 +37,59 @@ function resolveTranslationAiConfig(req) {
     model: server.model,
     temperature: 0.1,
     maxTokens: Math.max(Number(server.maxTokens) || 0, TRANSLATION_CLIENT_MAX_TOKENS_FLOOR),
+  };
+}
+
+function normalizeProfilePayload(body = {}) {
+  const baseUrl = String(body.baseUrl || '').trim().replace(/\/+$/, '');
+  let parsed;
+  try { parsed = new URL(baseUrl); } catch {
+    const error = new Error('Base URL 格式不正确');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+    const error = new Error('Base URL 必须是无账号信息的 HTTPS 地址');
+    error.statusCode = 400;
+    throw error;
+  }
+  return {
+    id: body.id,
+    name: body.name,
+    provider: body.provider,
+    providerName: body.providerName,
+    providerType: body.providerType,
+    providerCategory: body.providerCategory,
+    apiKeyUrl: body.apiKeyUrl,
+    baseUrl,
+    model: body.model,
+    temperature: body.temperature,
+    maxTokens: body.maxTokens,
+    apiKey: body.apiKey,
+    isDefault: body.isDefault,
+  };
+}
+
+function secretStorageReady() {
+  try {
+    encryptionKey();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function publicAiProfile(profile) {
+  if (!profile) return null;
+  const { credentialId, apiKey, ...safe } = profile;
+  return safe;
+}
+
+function aiProfilesResponse() {
+  return {
+    profiles: store.listAiProfiles().map(publicAiProfile),
+    settings: store.getAiSettings(),
+    secretStorageReady: secretStorageReady(),
   };
 }
 
@@ -89,6 +151,66 @@ function translationResponse(entry, viewer = null, assetId = '') {
 }
 
 function registerAiAssetRoutes(app, { translationRateLimit = (req, res, next) => next() } = {}) {
+  app.get('/api/ai/profiles', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(aiProfilesResponse());
+  });
+
+  app.post('/api/ai/profiles', (req, res) => {
+    try {
+      if (store.listAiProfiles().length >= 30) return res.status(409).json({ error: 'AI 配置最多保存 30 个' });
+      const profile = store.saveAiProfile(normalizeProfilePayload(req.body || {}));
+      store.saveAiSettings({ activeProfileId: profile.id });
+      return res.status(201).json({ profile: publicAiProfile(profile), settings: store.getAiSettings() });
+    } catch (error) {
+      return sendError(res, error, '保存 AI 配置失败');
+    }
+  });
+
+  app.put('/api/ai/profiles/:id', (req, res) => {
+    try {
+      if (!store.getAiProfile(req.params.id)) return res.status(404).json({ error: 'AI 配置不存在' });
+      const profile = store.saveAiProfile(normalizeProfilePayload({ ...(req.body || {}), id: req.params.id }));
+      return res.json({ profile: publicAiProfile(profile), settings: store.getAiSettings() });
+    } catch (error) {
+      return sendError(res, error, '保存 AI 配置失败');
+    }
+  });
+
+  app.delete('/api/ai/profiles/:id', (req, res) => {
+    try {
+      if (!store.deleteAiProfile(req.params.id)) return res.status(404).json({ error: 'AI 配置不存在' });
+      return res.json(aiProfilesResponse());
+    } catch (error) {
+      return sendError(res, error, '删除 AI 配置失败');
+    }
+  });
+
+  app.put('/api/ai/settings', (req, res) => {
+    try {
+      return res.json({ settings: store.saveAiSettings(req.body || {}) });
+    } catch (error) {
+      return sendError(res, error, '保存 AI 用途配置失败');
+    }
+  });
+
+  app.post('/api/ai/profiles/import', (req, res) => {
+    try {
+      if (store.listAiProfiles().length) return res.json(aiProfilesResponse());
+      const profiles = Array.isArray(req.body && req.body.profiles) ? req.body.profiles.slice(0, 30) : [];
+      const importedIds = new Set();
+      for (const raw of profiles) {
+        if (!raw || !String(raw.apiKey || '').trim()) continue;
+        const saved = store.saveAiProfile(normalizeProfilePayload(raw));
+        importedIds.add(saved.id);
+      }
+      if (importedIds.size) store.saveAiSettings(req.body && req.body.settings || {});
+      return res.json(aiProfilesResponse());
+    } catch (error) {
+      return sendError(res, error, '导入浏览器 AI 配置失败');
+    }
+  });
+
   app.post('/api/ai/models', async (req, res) => {
     try {
       const result = await deepseek.listModels(requestAiConfig(req));
@@ -108,13 +230,13 @@ function registerAiAssetRoutes(app, { translationRateLimit = (req, res, next) =>
   });
 
   app.get('/api/entry/:id/translation', (req, res) => {
-    const entry = fetcher.getEntryById(req.params.id);
+    const entry = fetcher.getEntryById(req.params.id, req.user);
     if (!entry) return res.status(404).json({ error: 'entry not found' });
-    res.json({ translation: translationResponse(entry, null, req.query.assetId) });
+    res.json({ translation: translationResponse(entry, req.user, req.query.assetId) });
   });
 
   app.post('/api/entry/:id/translation', translationRateLimit, async (req, res) => {
-    const entry = fetcher.getEntryById(req.params.id);
+    const entry = fetcher.getEntryById(req.params.id, req.user);
     if (!entry) return res.status(404).json({ error: 'entry not found' });
     try {
       const prepared = await withTimeout(
@@ -144,8 +266,8 @@ function registerAiAssetRoutes(app, { translationRateLimit = (req, res, next) =>
       const result = await withTimeout(
         deepseek.translateEntry(prepared.entry, {
           ...ai,
-          author: '我',
-          userId: null,
+          author: req.user.displayName,
+          userId: req.user.id,
           force: Boolean(req.body && req.body.force),
           omitQuotes,
         }),
@@ -154,7 +276,7 @@ function registerAiAssetRoutes(app, { translationRateLimit = (req, res, next) =>
       );
       res.json({
         ...result,
-        translation: translationResponse(prepared.entry, null) || result.translation,
+        translation: translationResponse(prepared.entry, req.user) || result.translation,
         originalFetched: prepared.fetched,
         originalFetchError: prepared.error || null,
         entry: prepared.fetched ? prepared.entry : undefined,

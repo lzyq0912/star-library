@@ -139,6 +139,7 @@ $('#mark-read-btn').onclick = async () => {
   const ids = visibleEntries().map(e => e.id);
   ids.forEach(id => markCatalogEntryRead(id));
   persist();
+  syncEntriesRead(ids);
   renderList();
   updateSidebarNavCounts();
   updateReaderReadButton();
@@ -583,7 +584,7 @@ function handleAnnotationListClick(e) {
     return;
   }
   if (e.target.closest('[data-annotation-login]')) {
-    return; // 个人模式无登录
+    return; // 主应用已由服务端 owner Session 保护
   }
   const helpful = e.target.closest('[data-annotation-helpful]');
   if (helpful) {
@@ -746,7 +747,7 @@ $('#comments-list').onkeydown = (e) => {
 $$('.comment-sort-btn').forEach(btn => {
   btn.onclick = () => setCommentSort(btn.dataset.commentSort);
 });
-// 个人模式：无登录/账号菜单绑定
+// 固定 owner：主应用只提供退出，登录由 /login 页面处理。
 $('#ai-settings-btn')?.addEventListener('click', () => openAiConfigModal('settings'));
 const translationProfileSelect = $('#translation-profile-select');
 if (translationProfileSelect) translationProfileSelect.onchange = (e) => setAiProfileForPurpose('translation', e.target.value);
@@ -759,7 +760,7 @@ $('#profile-manage-btn').onclick = () => {
   openAdminPage();
 };
 $('#admin-refresh-btn').onclick = refreshAll;
-$('#admin-manage-modal-btn').onclick = () => { renderManage(); $('#manage-modal').classList.remove('hidden'); };
+$('#admin-manage-modal-btn').onclick = () => { renderManage(); setSubscriptionFormOpen(false); $('#manage-modal').classList.remove('hidden'); };
 $('#admin-back-dashboard').onclick = () => openMyCommentsModal({ tab: 'profile' });
 $('#admin-close').onclick = closeAdminPage;
 $('#admin-submission-search-form').onsubmit = (event) => {
@@ -890,10 +891,18 @@ $('#ai-quick-models').onclick = (e) => {
 $('#ai-max-tokens').oninput = (e) => { e.target.value = e.target.value.replace(/[^\d]/g, ''); };
 $('#ai-fetch-models').onclick = fetchAiModels;
 $('#ai-test').onclick = testAiConnection;
-$('#manage-btn').onclick = () => { renderManage(); $('#manage-modal').classList.remove('hidden'); };
-$('#manage-close').onclick = () => $('#manage-modal').classList.add('hidden');
+$('#manage-btn').onclick = () => { renderManage(); setSubscriptionFormOpen(false); $('#manage-modal').classList.remove('hidden'); };
+$('#manage-add-source').onclick = () => setSubscriptionFormOpen($('#subscription-form').classList.contains('hidden'));
+$('#subscription-form').onsubmit = (event) => {
+  event.preventDefault();
+  submitCustomSubscription();
+};
+$('#manage-close').onclick = () => {
+  setSubscriptionFormOpen(false);
+  $('#manage-modal').classList.add('hidden');
+};
 $('#manage-modal').onclick = (e) => { if (e.target.id === 'manage-modal') $('#manage-modal').classList.add('hidden'); };
-// 个人模式：无 auth / change-password DOM 绑定
+$('#logout-btn')?.addEventListener('click', logout);
 // 投稿入口已内嵌到「个人精选 / GitHub 项目」源行；顶层按钮若仍存在则兼容
 if ($('#submit-link-open')) {
   $('#submit-link-open').onclick = () => openSubmitLinkModal({ mode: 'article' });
@@ -1227,7 +1236,11 @@ window.addEventListener('resize', rafThrottle(() => {
     storage.setItem('qm_reader_immersive', '0');
   }
   hydrateLucideIcons();
-  loadAiProfilesForScope();
+  try {
+    await loadMe();
+  } catch {
+    return;
+  }
   renderAgentPrompts();
   applyReaderPrefs();
   renderAiSettings();

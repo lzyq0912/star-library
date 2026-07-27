@@ -27,6 +27,11 @@ function createRateLimiter({ windowMs, max, message, key: keyForRequest = null }
 
 function createAppRateLimiters() {
   return {
+    loginRateLimit: createRateLimiter({
+      windowMs: 15 * 60 * 1000,
+      max: 5,
+      message: '登录尝试过多，请稍后再试',
+    }),
     submitLinkRateLimit: createRateLimiter({
       windowMs: 60 * 60 * 1000,
       max: 6,

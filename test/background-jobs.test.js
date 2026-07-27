@@ -9,8 +9,12 @@ process.env.QMREADER_DATA_DIR = testDataDir;
 
 const fetcher = require('../lib/fetcher');
 const jobs = require('../lib/background-jobs');
+const store = require('../lib/store');
 
-after(() => fs.rmSync(testDataDir, { recursive: true, force: true }));
+after(() => {
+  store.closeDatabase();
+  fs.rmSync(testDataDir, { recursive: true, force: true });
+});
 
 function stub(object, replacements) {
   const originals = {};

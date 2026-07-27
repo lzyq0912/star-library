@@ -2664,6 +2664,36 @@ button.feed-item.feed-item--draggable {
 .reader-toolbar-main { flex: 1 1 auto; }
 .reader-toolbar-admin { flex: 0 0 auto; justify-content: flex-end; }
 .reader-toolbar .ghost-btn { flex: none; }
+.reader-toolbar .reader-fetch-original {
+  min-height: 36px;
+  padding: 0 11px;
+  gap: 6px;
+  white-space: nowrap;
+}
+.reader-toolbar .reader-fetch-original .button-label {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+}
+.reader-original-status {
+  margin: 12px 0 2px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-1);
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.reader-original-status.error {
+  border-color: color-mix(in srgb, var(--semantic-red) 28%, var(--border));
+  background: color-mix(in srgb, var(--semantic-red) 6%, var(--bg-1));
+  color: var(--semantic-red);
+}
 .reader-delete {
   min-width: 0;
   border-color: color-mix(in srgb, var(--semantic-red) 28%, var(--border));
@@ -6046,6 +6076,55 @@ body.zen-personal #reader.reader--syllabus :is(.syllabus-brief--cme295, .syllabu
 .manage-status-failures strong { color: var(--text-0); }
 .manage-status-failures span { color: var(--semantic-red); }
 .manage-list { min-height: 0; overflow-y: auto; padding: 10px 14px 16px; }
+.manage-modal-box { width: min(720px, 94vw); }
+.manage-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.manage-head-actions .ghost-btn {
+  min-height: 32px;
+  padding: 5px 10px;
+}
+.subscription-form {
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(110px, 0.45fr) minmax(110px, 0.45fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.subscription-form label {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 700;
+}
+.subscription-form .subscription-url-field { grid-column: 1 / -1; }
+.subscription-form input,
+.subscription-form select {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-1);
+  color: var(--text-0);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 12.5px;
+  outline: none;
+}
+.subscription-form input:focus,
+.subscription-form select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.subscription-form > button { height: 36px; white-space: nowrap; }
 .manage-row {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 8px; border-radius: 8px; font-size: 13px;
@@ -6055,6 +6134,18 @@ body.zen-personal #reader.reader--syllabus :is(.syllabus-brief--cme295, .syllabu
 .manage-row .m-note { font-size: 11.5px; color: var(--text-2); }
 .manage-row .m-info { flex: 1; min-width: 0; }
 .manage-row .m-status { font-size: 11px; color: var(--text-2); flex: none; }
+.manage-row .m-custom {
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.manage-row .m-delete {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  color: var(--text-2);
+}
+.manage-row .m-delete:hover { color: var(--semantic-red); }
 .m-status.ok { color: var(--semantic-green); }
 .m-status.error { color: var(--semantic-red); }
 .switch {
@@ -6069,6 +6160,14 @@ body.zen-personal #reader.reader--syllabus :is(.syllabus-brief--cme295, .syllabu
 }
 .switch.on { background: var(--accent); }
 .switch.on::after { transform: translateX(14px); }
+
+@media (max-width: 620px) {
+  .subscription-form { grid-template-columns: 1fr 1fr; }
+  .subscription-form .subscription-url-field { grid-column: 1 / -1; }
+  .subscription-form > button { grid-column: 1 / -1; }
+  .manage-row { align-items: flex-start; }
+  .manage-row .m-status { display: none; }
+}
 
 /* ============ AI Config ============ */
 .ai-config-box {

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+require('../lib/env').loadEnv();
+
 if (!process.env.QMREADER_WORKER_KIND) {
   process.env.QMREADER_WORKER_KIND = process.send ? 'ipc' : 'cli';
 }

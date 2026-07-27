@@ -51,35 +51,101 @@ function ensureSingleDefault(profiles) {
   return profiles.map((profile, index) => ({ ...profile, isDefault: index === defaultIndex }));
 }
 
-function loadAiProfilesForScope() {
-  const scope = aiScope();
+function localAiProfilesForMigration(scope) {
   const stored = readJson(aiProfilesKey(scope), 'null');
-  let profiles = Array.isArray(stored) ? stored.map(normalizeProfile) : migrateLegacyAiProfiles();
-  if (!profiles.length) profiles = [createProfileFromPreset(DEFAULT_AI_PRESET_ID, { isDefault: true })];
+  const profiles = Array.isArray(stored) ? stored.map(normalizeProfile) : migrateLegacyAiProfiles();
+  return ensureSingleDefault(profiles).filter(profile => profile && profile.apiKey);
+}
+
+function clearLocalAiSecrets(scope) {
+  storage.removeItem(aiProfilesKey(scope));
+  storage.removeItem(aiActiveProfileKey(scope));
+  storage.removeItem(aiPurposeProfileKey('translation', scope));
+  storage.removeItem(aiPurposeProfileKey('rewrite', scope));
+  storage.removeItem(aiPurposeProfileKey('agent', scope));
+  storage.removeItem('qm_ai_configs');
+  storage.removeItem('qm_deepseek_key');
+}
+
+async function loadAiProfilesForScope() {
+  const scope = aiScope();
+  if (state.loadedAiScope === scope && state.aiProfiles.length) return state.aiProfiles;
+  let data = await api('/api/ai/profiles');
+  const migrationKey = `qm_ai_server_migrated:${scope}`;
+  if (!(data.profiles || []).length && storage.getItem(migrationKey) !== '1') {
+    const localProfiles = localAiProfilesForMigration(scope);
+    if (localProfiles.length) {
+      const activeId = storage.getItem(aiActiveProfileKey(scope));
+      try {
+        data = await api('/api/ai/profiles/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profiles: localProfiles,
+            settings: {
+              activeProfileId: activeId,
+              translationProfileId: storage.getItem(aiPurposeProfileKey('translation', scope)) || activeId,
+              rewriteProfileId: storage.getItem(aiPurposeProfileKey('rewrite', scope)) || activeId,
+              agentProfileId: storage.getItem(aiPurposeProfileKey('agent', scope)) || activeId,
+            },
+          }),
+        });
+        clearLocalAiSecrets(scope);
+      } catch (error) {
+        console.warn('AI profile migration skipped:', error.message || error);
+      }
+    }
+    if ((data.profiles || []).length || !localProfiles.length) storage.setItem(migrationKey, '1');
+  }
+  let profiles = (data.profiles || []).map((profile, index) => normalizeProfile({
+    ...profile,
+    serverPersisted: true,
+  }, index));
+  if (!profiles.length) profiles = [createProfileFromPreset(DEFAULT_AI_PRESET_ID, {
+    isDefault: true,
+    serverPersisted: false,
+    hasApiKey: false,
+  })];
   profiles = ensureSingleDefault(profiles);
   state.aiProfiles = profiles;
-  const activeId = storage.getItem(aiActiveProfileKey(scope));
+  const settings = data.settings || {};
+  const activeId = settings.activeProfileId;
   state.activeAiProfileId = profiles.some(profile => profile.id === activeId)
     ? activeId
     : (profiles.find(profile => profile.isDefault) || profiles[0]).id;
-  const rewriteId = storage.getItem(aiPurposeProfileKey('rewrite', scope));
-  const agentId = storage.getItem(aiPurposeProfileKey('agent', scope));
-  const translationId = storage.getItem(aiPurposeProfileKey('translation', scope));
+  const rewriteId = settings.rewriteProfileId;
+  const agentId = settings.agentProfileId;
+  const translationId = settings.translationProfileId;
   state.translationAiProfileId = profiles.some(profile => profile.id === translationId) ? translationId : state.activeAiProfileId;
   state.rewriteAiProfileId = profiles.some(profile => profile.id === rewriteId) ? rewriteId : state.activeAiProfileId;
   state.agentAiProfileId = profiles.some(profile => profile.id === agentId) ? agentId : state.activeAiProfileId;
   state.editingAiProfileId = state.activeAiProfileId;
+  state.aiSecretStorageReady = data.secretStorageReady !== false;
   state.loadedAiScope = scope;
-  persistAiProfiles();
+  return profiles;
 }
 
-function persistAiProfiles() {
-  const scope = aiScope();
-  storage.setItem(aiProfilesKey(scope), JSON.stringify(ensureSingleDefault(state.aiProfiles)));
-  if (state.activeAiProfileId) storage.setItem(aiActiveProfileKey(scope), state.activeAiProfileId);
-  if (state.translationAiProfileId) storage.setItem(aiPurposeProfileKey('translation', scope), state.translationAiProfileId);
-  if (state.rewriteAiProfileId) storage.setItem(aiPurposeProfileKey('rewrite', scope), state.rewriteAiProfileId);
-  if (state.agentAiProfileId) storage.setItem(aiPurposeProfileKey('agent', scope), state.agentAiProfileId);
+async function persistAiProfiles() {
+  const persistedIds = new Set(state.aiProfiles.filter(profile => profile.serverPersisted).map(profile => profile.id));
+  if (!persistedIds.size) return null;
+  const fallback = state.aiProfiles.find(profile => profile.isDefault && profile.serverPersisted)
+    || state.aiProfiles.find(profile => profile.serverPersisted);
+  const valid = id => persistedIds.has(id) ? id : fallback?.id || '';
+  try {
+    return await api('/api/ai/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        activeProfileId: valid(state.activeAiProfileId),
+        translationProfileId: valid(state.translationAiProfileId),
+        rewriteProfileId: valid(state.rewriteAiProfileId),
+        agentProfileId: valid(state.agentAiProfileId),
+      }),
+    });
+  } catch (error) {
+    toast('AI 用途配置未同步: ' + error.message, 4200);
+    return null;
+  }
 }
 
 function profileByIdOrDefault(profileId = '') {
@@ -107,7 +173,7 @@ function configFromProfile(profile) {
     provider: profile.provider || DEFAULT_AI_PRESET_ID,
     providerName: profile.providerName || profile.name || profile.provider || 'AI',
     providerType: profile.providerType || 'openai_compatible',
-    apiKey: String(profile.apiKey || '').trim(),
+    hasApiKey: Boolean(profile.hasApiKey || profile.apiKey),
     baseUrl: normalizeBaseUrl(profile.baseUrl),
     model: String(profile.model || '').trim(),
     temperature: clampTemperature(profile.temperature),
@@ -124,7 +190,7 @@ function aiConfigForPurpose(purpose = '') {
 }
 
 function hasUsableAiConfig(config = currentAiConfig()) {
-  return Boolean(config.apiKey && config.baseUrl && config.model);
+  return Boolean(config.profileId && config.hasApiKey && config.baseUrl && config.model);
 }
 
 function aiHeaderValue(value, fallback = '') {
@@ -136,16 +202,9 @@ function aiHeaderValue(value, fallback = '') {
 }
 
 function aiHeadersFromConfig(config) {
-  if (!String(config.apiKey || '').trim()) return {};
+  if (!config || !config.profileId || !config.hasApiKey) return {};
   return {
-    'X-AI-Provider': aiHeaderValue(config.provider, 'custom'),
-    'X-AI-Provider-Name': aiHeaderValue(config.providerName || config.profileName, config.provider || 'AI'),
-    'X-AI-Provider-Type': aiHeaderValue(config.providerType, 'openai_compatible'),
-    'X-AI-Key': aiHeaderValue(config.apiKey),
-    'X-AI-Base-URL': aiHeaderValue(config.baseUrl),
-    'X-AI-Model': aiHeaderValue(config.model),
-    'X-AI-Temperature': String(config.temperature ?? ''),
-    'X-AI-Max-Tokens': String(config.maxTokens ?? ''),
+    'X-AI-Profile-ID': aiHeaderValue(config.profileId),
   };
 }
 
@@ -167,7 +226,7 @@ function translationAiConfig() {
     provider: 'deepseek',
     providerName: 'DeepSeek',
     providerType: 'openai_compatible',
-    apiKey: '',
+    hasApiKey: false,
     baseUrl: '',
     model: '',
     temperature: 0.15,
@@ -184,7 +243,7 @@ function rewriteAiConfig() {
     provider: 'deepseek',
     providerName: 'DeepSeek',
     providerType: 'openai_compatible',
-    apiKey: '',
+    hasApiKey: false,
     baseUrl: '',
     model: '',
     temperature: 0.6,
@@ -220,6 +279,9 @@ async function api(path, opts) {
       const data = await res.json();
       if (data && data.error) message = data.error;
     } catch { /* keep HTTP status */ }
+    if (res.status === 401) {
+      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    }
     throw new Error(message);
   }
   return res.json();
@@ -582,7 +644,31 @@ function applyGuestEntryStates() {
 }
 
 async function loadUserEntryStates() {
-  applyGuestEntryStates();
+  let data = await api('/api/me/entry-states');
+  let states = data && data.states ? data.states : {};
+  const migrationKey = `qm_entry_state_migrated:${state.me && state.me.id || 'owner'}`;
+  const localHistory = historyEntriesForStorage(state.guestHistory);
+  const hasLocalState = state.guestRead.size || state.guestStarred.size || localHistory.length;
+  if (storage.getItem(migrationKey) !== '1' && hasLocalState) {
+    data = await api('/api/me/entry-states/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        read: [...state.guestRead],
+        starred: [...state.guestStarred],
+        history: localHistory,
+      }),
+    });
+    states = data && data.states ? data.states : states;
+  }
+  storage.setItem(migrationKey, '1');
+  state.read = new Set(Array.isArray(states.read) ? states.read : []);
+  state.starred = new Set(Array.isArray(states.starred) ? states.starred : []);
+  state.history = new Map(
+    (Array.isArray(states.history) ? states.history : [])
+      .filter(item => item && item.entryId)
+      .map(item => [item.entryId, Number(item.viewedAt) || Date.now()]),
+  );
 }
 
 function defaultEntryStats(entryId = '') {
@@ -984,8 +1070,31 @@ async function toggleEntryRead(entryId, force) {
 }
 
 async function syncEntryState(entryId, patch) {
-  persist();
-  return null;
+  try {
+    return await api(`/api/me/entry-states/${encodeURIComponent(entryId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+  } catch (error) {
+    toast(`状态未同步：${error.message}`, 4200);
+    return null;
+  }
+}
+
+async function syncEntriesRead(entryIds) {
+  const ids = [...new Set((entryIds || []).filter(Boolean))].slice(0, 1000);
+  if (!ids.length) return null;
+  try {
+    return await api('/api/me/entry-states/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entryIds: ids }),
+    });
+  } catch (error) {
+    toast(`已读状态未同步：${error.message}`, 4200);
+    return null;
+  }
 }
 
 function recordEntryView(entryId) {
@@ -997,14 +1106,18 @@ function recordEntryView(entryId) {
   api(`/api/entry/${encodeURIComponent(id)}/view`, { method: 'POST' })
     .then(data => {
       if (data && data.stats) mergeEntryStats(id, data.stats);
+      if (data && data.state && data.state.viewedAt) {
+        state.history.set(id, Number(data.state.viewedAt));
+      }
     })
     .catch(() => {});
 }
 
 async function loadMe() {
-  state.me = null;
-  applyGuestEntryStates();
-  loadAiProfilesForScope();
+  const data = await api('/api/me');
+  setCurrentUser(data.user || null);
+  await loadUserEntryStates();
+  await loadAiProfilesForScope();
   renderAuthState();
   renderEntryStateUi();
   renderComments();

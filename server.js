@@ -2,6 +2,8 @@
  * QMReader entrypoint — thin bootstrap over vertical-slice modular monolith.
  * API contracts, ports, data paths, and UX are unchanged from the pre-VSA monolith.
  */
+require('./lib/env').loadEnv();
+
 const fetcher = require('./lib/fetcher');
 const { PORT, HOST } = require('./modules/shared/config');
 const { createApp } = require('./modules/create-app');
