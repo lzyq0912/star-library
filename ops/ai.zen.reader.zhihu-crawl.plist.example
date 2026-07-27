@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  模板：勿填入真实用户绝对路径后提交。
+  安装请用 scripts/install-zhihu-crawl-launchd.sh（只写 ~/Library/LaunchAgents/）。
+  占位符：__ROOT__ = 仓库根；__HOME__ = $HOME；__NODE_BIN__ = node 可执行路径。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.zen.reader.zhihu-crawl</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>__ROOT__/scripts/crawl-zhihu-auto.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__ROOT__</string>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>9</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>NODE_BIN</key>
+    <string>__NODE_BIN__</string>
+    <key>PYTHON_BIN</key>
+    <string>__ROOT__/tools/blog_crawler/.venv/bin/python</string>
+    <key>HOME</key>
+    <string>__HOME__</string>
+    <key>ZHIHU_CRAWL_ENABLED</key>
+    <string>1</string>
+    <key>ZHIHU_EXPORT_PATH</key>
+    <string>__ROOT__/data/blog-crawl/zhihu-export.jsonl</string>
+    <key>ZHIHU_IMPORT_STAMP</key>
+    <string>__ROOT__/data/blog-crawl/zhihu-last-import.json</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>__ROOT__/data/logs/zhihu-crawl.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>__ROOT__/data/logs/zhihu-crawl.stderr.log</string>
+</dict>
+</plist>

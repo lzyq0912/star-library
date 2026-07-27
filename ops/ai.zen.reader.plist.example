@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  模板：勿填入真实用户绝对路径后提交。
+  用法：把 /Users/YOUR_USERNAME/path/to/reader 替换为你的仓库根目录后，
+  拷贝到 ~/Library/LaunchAgents/ai.zen.reader.plist 并 launchctl load。
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.zen.reader</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOUR_USERNAME/path/to/reader/scripts/run-reader.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/YOUR_USERNAME/path/to/reader</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>NODE_BIN</key>
+    <string>/opt/homebrew/bin/node</string>
+    <key>HOME</key>
+    <string>/Users/YOUR_USERNAME</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/YOUR_USERNAME/path/to/reader/data/logs/reader.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOUR_USERNAME/path/to/reader/data/logs/reader.stderr.log</string>
+</dict>
+</plist>

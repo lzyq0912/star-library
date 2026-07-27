@@ -1,0 +1,67 @@
+{
+  "name": "qmreader",
+  "version": "1.0.0",
+  "description": "Neutral online RSS reader powered by RSSHub and direct feeds",
+  "license": "MIT",
+  "homepage": "https://github.com/lzyq0912/star-library#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lzyq0912/star-library.git"
+  },
+  "keywords": [
+    "rss",
+    "rss-reader",
+    "rsshub",
+    "self-hosted",
+    "deepseek",
+    "ai-workflow"
+  ],
+  "main": "server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node --test test/*.test.js",
+    "build:app": "node scripts/build-frontend-app.js",
+    "build:app:esm": "node scripts/build-frontend-app.js",
+    "build:assets": "node scripts/build-frontend-assets.js",
+    "build:frontend": "npm run build:app && npm run build:assets",
+    "check:app": "node scripts/build-frontend-app.js --check",
+    "check:assets": "node scripts/build-frontend-assets.js --check",
+    "check:frontend": "npm run check:app && npm run check:assets",
+    "icons:generate": "node scripts/generate-lucide-icons.js",
+    "import:blogs": "node scripts/import-preserved-blog.js",
+    "import:likes": "node scripts/import-likes.js",
+    "import:xhs-kb": "node scripts/import-xhs-kb.js",
+    "import:bili-watchlater": "node scripts/import-bili-watchlater.js",
+    "crawl:blogs": "python3 tools/blog_crawler/crawl_and_import.py --import-qm",
+    "crawl:blogs:refresh": "python3 tools/blog_crawler/crawl_and_import.py --refresh-existing --import-qm",
+    "crawl:zhihu:export": "python3 tools/blog_crawler/zhihu_playwright_export.py",
+    "crawl:zhihu": "python3 tools/blog_crawler/crawl_and_import.py --zhihu-export=${ZHIHU_EXPORT_PATH:-$HOME/Downloads/zhihu-browser-export.jsonl} --source=zhihu-tianqing --source=zhihu-lemonround --source=zhihu-fafa --source=zhihu-yuanchao --source=zhihu-tongsanpang --no-icons --import-qm",
+    "crawl:zhihu:all": "npm run crawl:zhihu:export && npm run crawl:zhihu",
+    "crawl:zhihu:auto": "bash scripts/crawl-zhihu-auto.sh",
+    "repair:zhihu": "node scripts/repair-zhihu-local.js",
+    "install:zhihu-crawl": "bash scripts/install-zhihu-crawl-launchd.sh",
+    "uninstall:zhihu-crawl": "bash scripts/uninstall-zhihu-crawl-launchd.sh",
+    "test:blog-crawler": "python3 -m unittest discover -s tools/blog_crawler/tests -v",
+    "refresh:worker": "node scripts/refresh-worker.js --kind=refresh",
+    "repair:qingkeai": "node scripts/repair-qingkeai-dates.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "compression": "^1.8.1",
+    "dompurify": "3.4.11",
+    "express": "^4.19.2",
+    "iconv-lite": "^0.6.3",
+    "katex": "^0.17.0",
+    "lz4js": "^0.2.0",
+    "rss-parser": "^3.13.0",
+    "undici": "^7.28.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "lucide": "^1.22.0"
+  }
+}

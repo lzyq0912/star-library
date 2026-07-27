@@ -1,0 +1,35 @@
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python tooling used by the optional crawlers
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Local editor and OS metadata
+.DS_Store
+.idea/
+.vscode/
+
+# Local configuration and credentials
+.env
+.env.local
+.env.*
+!.env.example
+.envrc
+.direnv/
+.npmrc
+
+# Runtime state and personal content
+data/
+public/article-images/*
+!public/article-images/.gitkeep
+ops/ai.zen.reader.zhihu-crawl.plist
+
+# Test and coverage output
+coverage/
+.nyc_output/

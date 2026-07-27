@@ -1,0 +1,17 @@
+[
+  "01-shared-dom-storage.js",
+  "02-shared-constants.js",
+  "03-shared-icons-profiles.js",
+  "04-shared-state.js",
+  "05-shared-routing-utils.js",
+  "06-api-catalog.js",
+  "07-sidebar.js",
+  "08-entry-list.js",
+  "09-reader-content.js",
+  "10-reader-ai-assets.js",
+  "11-reader-annotations.js",
+  "12-reader-social-open.js",
+  "13-navigation-refresh.js",
+  "14-manage-layout.js",
+  "15-events-init.js"
+]
