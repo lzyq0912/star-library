@@ -11864,3 +11864,354 @@ body.zen-personal #app {
 #reader.reader--note-view #reader-toc {
   display: none !important;
 }
+
+/* ============ Design refresh pass（2026-07） ============ */
+/* 追加式覆盖，不改既有规则。目标：修错位、统一控件几何、补充微动效。
+   动效默认遵循系统 prefers-reduced-motion。 */
+
+/* --- 错位修复：文章卡片 active 态不再用 3px 左边框顶开内容（改 inset 阴影） --- */
+.entry-card,
+.entry-card.active {
+  border-left-width: 1px;
+}
+.entry-card.active {
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    0 1px 3px var(--shadow-soft),
+    0 8px 24px var(--shadow);
+}
+
+/* --- 错位修复：pane 头部在窄栏（320px）下不再挤压/溢出 --- */
+.pane-actions {
+  flex-wrap: nowrap;
+  min-width: 0;
+  align-items: center;
+}
+.pane-actions > .icon-btn {
+  flex: 0 0 auto;
+}
+.pane-actions #search {
+  flex: 1 1 auto;
+  min-width: 88px;
+  width: auto;
+  max-width: none;
+}
+/* 源刷新状态胶囊：固定尺寸 + 省略，避免顶破搜索框 */
+.source-refresh-status {
+  flex: 0 0 auto;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .source-refresh-status:not(.hidden) {
+    animation: qm-chip-in 220ms var(--ease-out-strong) both;
+  }
+}
+@keyframes qm-chip-in {
+  from { opacity: 0; transform: translateY(4px); }
+}
+
+/* --- 错位修复：favicon 回退字母块与 13px 图标对齐 --- */
+.entry-top .letter-icon {
+  --icon-size: 13px;
+  display: inline-grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 800;
+  flex: 0 0 auto;
+}
+
+/* --- 控件几何：侧栏底部按钮垂直居中、同高 --- */
+.sidebar-footer {
+  align-items: center;
+}
+.sidebar-footer .ghost-btn,
+.sidebar-footer .icon-btn {
+  min-height: var(--control-h);
+}
+
+/* --- 列表模式页签：分段控件观感 --- */
+.list-scope-bar {
+  margin: 8px 10px 4px;
+  padding: 3px;
+  border: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-2);
+  gap: 2px;
+}
+.list-scope-btn {
+  min-height: 30px;
+  border-radius: var(--radius-md);
+}
+.list-scope-btn.active {
+  background: var(--bg-1);
+  box-shadow: 0 1px 3px var(--shadow), inset 0 0 0 1px var(--border-subtle);
+}
+
+/* --- 文章卡片：hover 层次 + 平滑过渡（transform 仅 hover，保护虚拟列表） --- */
+.entry-card {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 180ms var(--ease-out-strong),
+    transform 180ms var(--ease-out-strong);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .entry-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 10px var(--shadow-soft);
+  }
+  .entry-card:active {
+    transform: translateY(0);
+    transition-duration: 60ms;
+  }
+}
+
+/* --- 按钮按压反馈 --- */
+@media (prefers-reduced-motion: no-preference) {
+  .icon-btn:active,
+  .ghost-btn:active,
+  .view-btn:active,
+  .feed-item:active,
+  .list-scope-btn:active,
+  .entry-pane-tab:active {
+    transform: scale(0.95);
+    transition-duration: 60ms;
+  }
+}
+
+/* --- 阅读器打开：内容轻柔升起 --- */
+@media (prefers-reduced-motion: no-preference) {
+  #reader:not(.hidden) {
+    animation: qm-reader-in 300ms var(--ease-out-strong) both;
+  }
+  #reader-empty:not(.hidden) {
+    animation: qm-reader-in 300ms var(--ease-out-strong) both;
+  }
+  .toast:not(.hidden) {
+    animation: qm-toast-in 260ms var(--ease-out-strong) both;
+  }
+}
+@keyframes qm-reader-in {
+  from { opacity: 0; transform: translateY(10px); }
+}
+@keyframes qm-toast-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+}
+
+/* --- 收起/展开整左栏的浮动钮：更小更轻，减少遮挡感 --- */
+#app > .left-collapse-toggle {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  top: 12px;
+  margin-top: 12px;
+  box-shadow: 0 1px 4px var(--shadow-soft), 0 6px 18px var(--shadow);
+}
+#app > .left-collapse-toggle .app-icon {
+  --icon-size: 15px;
+}
+
+/* --- 减少动态总闸：上面所有动画/过渡统一失效 --- */
+@media (prefers-reduced-motion: reduce) {
+  .entry-card,
+  .icon-btn,
+  .ghost-btn,
+  .view-btn,
+  .feed-item,
+  .list-scope-btn,
+  .entry-pane-tab,
+  #reader,
+  #reader-empty,
+  .toast,
+  .source-refresh-status {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+/* --- 底栏重排（2026-07）：主操作整行 + 三个等分图标按钮，修掉旧布局的竖排字/错位 --- */
+.sidebar-footer {
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+}
+.sidebar-footer .button-label {
+  white-space: nowrap;
+}
+.footer-refresh {
+  width: 100%;
+  flex: none;
+}
+.footer-actions {
+  display: flex;
+  gap: 6px;
+}
+.footer-action {
+  flex: 1;
+  min-height: 34px;
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  position: relative;
+}
+.footer-action:hover {
+  background: var(--bg-2);
+  color: var(--text-0);
+}
+.footer-action-danger:hover {
+  color: var(--danger, #dc2626);
+  background: color-mix(in srgb, var(--danger, #dc2626) 8%, transparent);
+}
+/* 未配置 API Key：图标着色 + 角标圆点 */
+#ai-settings-btn.needs-key {
+  color: var(--accent, #3b82f6);
+}
+#ai-settings-btn.needs-key::after {
+  content: '';
+  position: absolute;
+  top: 7px;
+  right: calc(50% - 13px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, #3b82f6);
+}
+/* 收起态：图标行改竖排 */
+#app.sidebar-collapsed .footer-actions {
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+#app.sidebar-collapsed .footer-action {
+  flex: none;
+  width: 44px;
+  height: 36px;
+  min-height: 36px;
+}
+
+/* --- 悬浮目录（毛玻璃）+ 阅读进度条（2026-07） --- */
+/* 普通文章改用右下悬浮目录；课程大纲保留内嵌 <details> 目录 */
+#reader:not(.reader--syllabus) > #reader-toc {
+  display: none;
+}
+
+#reader-progress {
+  position: sticky;
+  top: 0;
+  height: 2px;
+  margin-bottom: -2px;
+  z-index: 60;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 45%, transparent));
+  pointer-events: none;
+}
+
+.toc-float {
+  position: fixed;
+  right: 22px;
+  bottom: 24px;
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.toc-fab {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--text-1);
+  background: color-mix(in srgb, var(--bg-1) 70%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.5);
+  backdrop-filter: blur(14px) saturate(1.5);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 1px 4px var(--shadow-soft), 0 10px 28px var(--shadow);
+  transition: transform 180ms var(--ease-out-strong), color 150ms ease;
+}
+.toc-fab:hover {
+  transform: translateY(-2px);
+  color: var(--text-0);
+}
+.toc-fab.is-open {
+  color: var(--text-0);
+}
+.toc-panel {
+  width: min(320px, 70vw);
+  max-height: min(56vh, 500px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--bg-1) 66%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  backdrop-filter: blur(20px) saturate(1.6);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 2px 10px var(--shadow-soft), 0 18px 48px var(--shadow);
+  transform-origin: bottom right;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .toc-panel:not(.hidden) {
+    animation: qm-toc-panel-in 220ms var(--ease-out-strong) both;
+  }
+}
+@keyframes qm-toc-panel-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+}
+.toc-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+}
+.toc-progress {
+  font-variant-numeric: tabular-nums;
+}
+.toc-panel-list {
+  overflow-y: auto;
+  padding: 4px 8px 10px;
+}
+.toc-panel-list .reader-toc-link {
+  display: block;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-1);
+  text-decoration: none;
+  box-shadow: inset 2px 0 0 transparent;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+.toc-panel-list .reader-toc-h3 { padding-left: 22px; }
+.toc-panel-list .reader-toc-h4 { padding-left: 34px; }
+.toc-panel-list .reader-toc-link:hover {
+  background: var(--bg-2);
+  color: var(--text-0);
+}
+.toc-panel-list .reader-toc-link.active {
+  color: var(--text-0);
+  font-weight: 650;
+  background: var(--bg-2);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .toc-fab,
+  .toc-panel,
+  .toc-panel-list .reader-toc-link {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}

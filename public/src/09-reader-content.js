@@ -1501,8 +1501,53 @@ function updateFetchOriginalButton(entry = state.activeEntry) {
 
 function updateReaderTocVisibility(tab = state.readerTab) {
   const toc = $('#reader-toc');
-  if (!toc) return;
-  toc.classList.toggle('hidden', tab !== 'original' || !state.readerTocAvailable);
+  const show = tab === 'original' && state.readerTocAvailable;
+  if (toc) toc.classList.toggle('hidden', !show);
+  const float = $('#toc-float');
+  if (float) float.classList.toggle('hidden', !show);
+  if (!show) setTocPanelOpen(false);
+}
+
+function setTocPanelOpen(open) {
+  const panel = $('#toc-panel');
+  const fab = $('#toc-fab');
+  if (!panel || !fab) return;
+  panel.classList.toggle('hidden', !open);
+  fab.setAttribute('aria-expanded', open ? 'true' : 'false');
+  fab.classList.toggle('is-open', open);
+}
+
+let tocSpy = null;
+
+function setupTocScrollSpy(headings) {
+  if (tocSpy) {
+    tocSpy.disconnect();
+    tocSpy = null;
+  }
+  const pane = $('#reader-pane');
+  if (!pane || !headings.length || !('IntersectionObserver' in window)) return;
+  const links = $$('#toc-panel-list .reader-toc-link');
+  if (!links.length) return;
+  let activeLink = null;
+  const setActive = (id) => {
+    const next = links.find(a => a.getAttribute('href') === `#${id}`) || null;
+    if (next === activeLink) return;
+    activeLink?.classList.remove('active');
+    activeLink = next;
+    if (activeLink) {
+      activeLink.classList.add('active');
+      activeLink.scrollIntoView({ block: 'nearest' });
+    }
+  };
+  tocSpy = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) setActive(entry.target.id);
+    });
+  }, { root: pane, rootMargin: '-72px 0px -78% 0px', threshold: 0 });
+  headings.forEach(item => {
+    const el = document.getElementById(item.id);
+    if (el) tocSpy.observe(el);
+  });
 }
 
 function syllabusScheduleTableScore(table) {
@@ -1856,16 +1901,22 @@ function renderReaderToc(root = $('#reader-content')) {
     .filter(Boolean)
     .slice(0, isSyllabus ? 48 : 24);
   state.readerTocAvailable = headings.length >= (isSyllabus ? 1 : 2);
+  const panelList = $('#toc-panel-list');
   if (!state.readerTocAvailable) {
     toc.open = false;
     list.innerHTML = '';
+    if (panelList) panelList.innerHTML = '';
+    setupTocScrollSpy([]);
     updateReaderTocVisibility();
     return;
   }
   toc.open = isSyllabus;
-  list.innerHTML = headings.map(item => `
+  const linksHtml = headings.map(item => `
     <a class="reader-toc-link reader-toc-${item.level}" href="#${escapeHtml(item.id)}">${escapeHtml(item.text)}</a>
   `).join('');
+  list.innerHTML = linksHtml;
+  if (panelList) panelList.innerHTML = linksHtml;
+  setupTocScrollSpy(headings);
   updateReaderTocVisibility();
 }
 

@@ -1567,6 +1567,10 @@ function fallbackFavicon(img, letter) {
   img.replaceWith(icon);
 }
 
+// bundle 由 esbuild 打成 IIFE，顶层函数声明不会挂到全局；
+// 内联 onerror="fallbackFavicon(...)" 需要 window 上可访问，否则 ReferenceError。
+window.fallbackFavicon = fallbackFavicon;
+
 function faviconTargetUrl(siteUrl, domain) {
   const raw = String(siteUrl || '').trim();
   try {
@@ -7536,8 +7540,53 @@ function updateFetchOriginalButton(entry = state.activeEntry) {
 
 function updateReaderTocVisibility(tab = state.readerTab) {
   const toc = $('#reader-toc');
-  if (!toc) return;
-  toc.classList.toggle('hidden', tab !== 'original' || !state.readerTocAvailable);
+  const show = tab === 'original' && state.readerTocAvailable;
+  if (toc) toc.classList.toggle('hidden', !show);
+  const float = $('#toc-float');
+  if (float) float.classList.toggle('hidden', !show);
+  if (!show) setTocPanelOpen(false);
+}
+
+function setTocPanelOpen(open) {
+  const panel = $('#toc-panel');
+  const fab = $('#toc-fab');
+  if (!panel || !fab) return;
+  panel.classList.toggle('hidden', !open);
+  fab.setAttribute('aria-expanded', open ? 'true' : 'false');
+  fab.classList.toggle('is-open', open);
+}
+
+let tocSpy = null;
+
+function setupTocScrollSpy(headings) {
+  if (tocSpy) {
+    tocSpy.disconnect();
+    tocSpy = null;
+  }
+  const pane = $('#reader-pane');
+  if (!pane || !headings.length || !('IntersectionObserver' in window)) return;
+  const links = $$('#toc-panel-list .reader-toc-link');
+  if (!links.length) return;
+  let activeLink = null;
+  const setActive = (id) => {
+    const next = links.find(a => a.getAttribute('href') === `#${id}`) || null;
+    if (next === activeLink) return;
+    activeLink?.classList.remove('active');
+    activeLink = next;
+    if (activeLink) {
+      activeLink.classList.add('active');
+      activeLink.scrollIntoView({ block: 'nearest' });
+    }
+  };
+  tocSpy = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) setActive(entry.target.id);
+    });
+  }, { root: pane, rootMargin: '-72px 0px -78% 0px', threshold: 0 });
+  headings.forEach(item => {
+    const el = document.getElementById(item.id);
+    if (el) tocSpy.observe(el);
+  });
 }
 
 function syllabusScheduleTableScore(table) {
@@ -7891,16 +7940,22 @@ function renderReaderToc(root = $('#reader-content')) {
     .filter(Boolean)
     .slice(0, isSyllabus ? 48 : 24);
   state.readerTocAvailable = headings.length >= (isSyllabus ? 1 : 2);
+  const panelList = $('#toc-panel-list');
   if (!state.readerTocAvailable) {
     toc.open = false;
     list.innerHTML = '';
+    if (panelList) panelList.innerHTML = '';
+    setupTocScrollSpy([]);
     updateReaderTocVisibility();
     return;
   }
   toc.open = isSyllabus;
-  list.innerHTML = headings.map(item => `
+  const linksHtml = headings.map(item => `
     <a class="reader-toc-link reader-toc-${item.level}" href="#${escapeHtml(item.id)}">${escapeHtml(item.text)}</a>
   `).join('');
+  list.innerHTML = linksHtml;
+  if (panelList) panelList.innerHTML = linksHtml;
+  setupTocScrollSpy(headings);
   updateReaderTocVisibility();
 }
 
@@ -16100,6 +16155,34 @@ $('#reader-toc').onclick = (e) => {
   e.preventDefault();
   scrollReaderTarget(link.getAttribute('href'), { offset: 58 });
 };
+$('#toc-fab').onclick = () => {
+  const panel = $('#toc-panel');
+  setTocPanelOpen(Boolean(panel && panel.classList.contains('hidden')));
+};
+$('#toc-panel-list').onclick = (e) => {
+  const link = e.target.closest('a[href^="#"]');
+  if (!link) return;
+  e.preventDefault();
+  // offset 要大于 scroll-spy 的 top rootMargin(72px)，让目标标题落进高亮带
+  scrollReaderTarget(link.getAttribute('href'), { offset: 84 });
+};
+const readerPaneScroller = $('#reader-pane');
+let readerProgressRaf = 0;
+const updateReaderProgress = () => {
+  const max = readerPaneScroller.scrollHeight - readerPaneScroller.clientHeight;
+  const ratio = max > 0 ? Math.min(1, readerPaneScroller.scrollTop / max) : 0;
+  const bar = $('#reader-progress');
+  if (bar) bar.style.transform = `scaleX(${ratio})`;
+  const label = $('#toc-progress');
+  if (label) label.textContent = `${Math.round(ratio * 100)}%`;
+};
+readerPaneScroller.addEventListener('scroll', () => {
+  if (readerProgressRaf) return;
+  readerProgressRaf = requestAnimationFrame(() => {
+    readerProgressRaf = 0;
+    updateReaderProgress();
+  });
+}, { passive: true });
 $('#reader-assets').onclick = (e) => {
   const btn = e.target.closest('[data-asset]');
   if (!btn) return;
@@ -16634,6 +16717,7 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('#source-context-menu')) hideSourceContextMenu();
   if (!e.target.closest('#entry-context-menu')) hideEntryContextMenu();
   if (!e.target.closest('#reader-preferences, #reader-prefs-toggle')) setReaderPrefsOpen(false);
+  if (!e.target.closest('#toc-float')) setTocPanelOpen(false);
 });
 
 async function deleteSourceById(sourceId, { reason = 'front-end source delete', confirm = false } = {}) {
@@ -16835,6 +16919,7 @@ document.addEventListener('keydown', (e) => {
     setReaderPrefsOpen(false);
     document.getElementById('app').classList.remove('reading');
     setAccountMenuOpen(false);
+    setTocPanelOpen(false);
     $('#manage-modal').classList.add('hidden');
     $('#ai-config-modal').classList.add('hidden');
     $('#submit-link-modal').classList.add('hidden');

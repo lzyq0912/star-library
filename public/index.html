@@ -5,7 +5,7 @@
   <title>Reader</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
   <link rel="shortcut icon" href="/favicon.svg?v=2" />
-  <link rel="stylesheet" href="/styles.min.css?v=a4c2def6a0" />
+  <link rel="stylesheet" href="/styles.min.css?v=c3ef6cc683" />
   <meta name="description" content="本地私人博客 / RSS 阅读器" />
   <meta name="robots" content="noindex,nofollow" />
   <script>
@@ -54,10 +54,12 @@
       <div class="sidebar-scroll" id="feed-groups"><!-- groups injected --></div>
 
       <div class="sidebar-footer">
-        <button id="refresh-btn" class="ghost-btn"><span data-qm-icon="refresh-cw"></span><span class="button-label">刷新全部</span></button>
-        <button id="ai-settings-btn" class="ghost-btn" type="button" title="填写 API Key / Base URL / 模型"><span data-qm-icon="sparkles"></span><span class="button-label">AI 设置</span></button>
-        <button id="logout-btn" class="icon-btn" type="button" title="退出登录" aria-label="退出登录"><span data-qm-icon="log-out"></span></button>
-        <button id="manage-btn" class="ghost-btn" type="button"><span data-qm-icon="settings"></span><span class="button-label">管理源</span></button>
+        <button id="refresh-btn" class="ghost-btn footer-refresh"><span data-qm-icon="refresh-cw"></span><span class="button-label">刷新全部</span></button>
+        <div class="footer-actions">
+          <button id="ai-settings-btn" class="icon-btn footer-action" type="button" title="填写 API Key / Base URL / 模型" aria-label="AI 设置"><span data-qm-icon="sparkles"></span></button>
+          <button id="manage-btn" class="icon-btn footer-action" type="button" title="管理源" aria-label="管理源"><span data-qm-icon="settings"></span></button>
+          <button id="logout-btn" class="icon-btn footer-action footer-action-danger" type="button" title="退出登录" aria-label="退出登录"><span data-qm-icon="log-out"></span></button>
+        </div>
       </div>
     </aside>
 
@@ -98,6 +100,7 @@
         <p>选择一篇文章开始阅读</p>
       </div>
       <article id="reader" class="reader hidden">
+        <div id="reader-progress" aria-hidden="true"></div>
         <nav id="reader-signal-rail" class="reader-signal-rail" aria-label="文章操作">
           <button id="reader-rail-star" class="reader-signal-btn" type="button" title="收藏这篇文章" aria-label="收藏这篇文章">
             <span class="reader-signal-icon" data-qm-icon="star"></span>
@@ -718,6 +721,14 @@
     <button type="button" role="menuitem" data-content-action="delete-image" class="entry-context-danger hidden">删除图片</button>
   </div>
 
-  <script src="/app.bundle.min.js?v=843ce49147"></script>
+  <div id="toc-float" class="toc-float hidden">
+    <div id="toc-panel" class="toc-panel hidden" role="navigation" aria-label="文章目录">
+      <div class="toc-panel-head"><span>目录</span><span id="toc-progress" class="toc-progress"></span></div>
+      <nav id="toc-panel-list" class="toc-panel-list"></nav>
+    </div>
+    <button id="toc-fab" class="toc-fab" type="button" title="文章目录" aria-label="打开文章目录" aria-expanded="false"><span data-qm-icon="list"></span></button>
+  </div>
+
+  <script src="/app.bundle.min.js?v=f705c5f3b3"></script>
 </body>
 </html>

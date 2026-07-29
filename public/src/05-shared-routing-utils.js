@@ -689,6 +689,10 @@ function fallbackFavicon(img, letter) {
   img.replaceWith(icon);
 }
 
+// bundle 由 esbuild 打成 IIFE，顶层函数声明不会挂到全局；
+// 内联 onerror="fallbackFavicon(...)" 需要 window 上可访问，否则 ReferenceError。
+window.fallbackFavicon = fallbackFavicon;
+
 function faviconTargetUrl(siteUrl, domain) {
   const raw = String(siteUrl || '').trim();
   try {

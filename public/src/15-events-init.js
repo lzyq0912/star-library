@@ -426,6 +426,34 @@ $('#reader-toc').onclick = (e) => {
   e.preventDefault();
   scrollReaderTarget(link.getAttribute('href'), { offset: 58 });
 };
+$('#toc-fab').onclick = () => {
+  const panel = $('#toc-panel');
+  setTocPanelOpen(Boolean(panel && panel.classList.contains('hidden')));
+};
+$('#toc-panel-list').onclick = (e) => {
+  const link = e.target.closest('a[href^="#"]');
+  if (!link) return;
+  e.preventDefault();
+  // offset 要大于 scroll-spy 的 top rootMargin(72px)，让目标标题落进高亮带
+  scrollReaderTarget(link.getAttribute('href'), { offset: 84 });
+};
+const readerPaneScroller = $('#reader-pane');
+let readerProgressRaf = 0;
+const updateReaderProgress = () => {
+  const max = readerPaneScroller.scrollHeight - readerPaneScroller.clientHeight;
+  const ratio = max > 0 ? Math.min(1, readerPaneScroller.scrollTop / max) : 0;
+  const bar = $('#reader-progress');
+  if (bar) bar.style.transform = `scaleX(${ratio})`;
+  const label = $('#toc-progress');
+  if (label) label.textContent = `${Math.round(ratio * 100)}%`;
+};
+readerPaneScroller.addEventListener('scroll', () => {
+  if (readerProgressRaf) return;
+  readerProgressRaf = requestAnimationFrame(() => {
+    readerProgressRaf = 0;
+    updateReaderProgress();
+  });
+}, { passive: true });
 $('#reader-assets').onclick = (e) => {
   const btn = e.target.closest('[data-asset]');
   if (!btn) return;
@@ -960,6 +988,7 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('#source-context-menu')) hideSourceContextMenu();
   if (!e.target.closest('#entry-context-menu')) hideEntryContextMenu();
   if (!e.target.closest('#reader-preferences, #reader-prefs-toggle')) setReaderPrefsOpen(false);
+  if (!e.target.closest('#toc-float')) setTocPanelOpen(false);
 });
 
 async function deleteSourceById(sourceId, { reason = 'front-end source delete', confirm = false } = {}) {
@@ -1161,6 +1190,7 @@ document.addEventListener('keydown', (e) => {
     setReaderPrefsOpen(false);
     document.getElementById('app').classList.remove('reading');
     setAccountMenuOpen(false);
+    setTocPanelOpen(false);
     $('#manage-modal').classList.add('hidden');
     $('#ai-config-modal').classList.add('hidden');
     $('#submit-link-modal').classList.add('hidden');
